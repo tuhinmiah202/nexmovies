@@ -16,9 +16,11 @@ const PUBLIC_DIR = fs.existsSync(path.join(__dirname, 'public'))
 
 const app = express();
 const PORT = process.env.PORT || 7860;
-// Moviebox-API backend URL. Set in environment (Vercel dashboard or .env file).
-// Without it /api/home and catalog endpoints will return empty data.
-const API_URL = process.env.API_URL;
+// Moviebox-API backend URL. Can be overridden with the API_URL env var
+// (Vercel dashboard or .env file). This default is a PUBLIC backend endpoint
+// (not a credential), so it's safe to keep here to keep the site working even
+// when the env var is unset. The real secret (TMDB_API_KEY) is env-only below.
+const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app';
 
 // TMDB for metadata. Set in environment (Vercel dashboard or .env file).
 // Without it TMDB-powered features (hero carousel, trending fallback) will be empty.
