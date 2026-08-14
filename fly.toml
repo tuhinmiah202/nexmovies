@@ -10,8 +10,8 @@ primary_region = 'sin'
 [env]
   NODE_ENV = 'production'
   PORT = '7860'
-  # Moviebox-API (Vercel) backend that this frontend proxies content from.
-  API_URL = 'https://moviebox-api-steel.vercel.app'
+  # API_URL and TMDB_API_KEY are sensitive — set them in Fly.io secrets or
+  # Vercel environment variables instead of hard-coding them here.
 
 [http_service]
   internal_port = 7860

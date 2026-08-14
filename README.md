@@ -25,7 +25,8 @@ Set these in the Space Settings > Variables and Secrets:
 
 | Variable | Description |
 |----------|-------------|
-| `API_URL` | Backend API URL (e.g., https://moviebox-api-steel.vercel.app) |
+| `API_URL` | Backend Moviebox-API URL. Set in Vercel → Project → Environment Variables. |
+| `TMDB_API_KEY` | TMDB API key. Get from https://developers.themoviedb.org. Set in Vercel env. |
 
 ## Tech Stack
 
