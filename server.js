@@ -9,7 +9,7 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 7860;
-const API_URL = process.env.API_URL || 'http://localhost:8000';
+const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app/api';
 
 // TMDB for metadata (set TMDB_API_KEY env var for production)
 const TMDB_KEY = process.env.TMDB_API_KEY || '2dca580c2a14b55200e784d157207b4d';
@@ -118,6 +118,7 @@ const ALLOWED_PROXY_HOSTS = [
   'pbcdn.aoneroom.com',
   'macdn.aoneroom.com',
   'h5-api.aoneroom.com',
+  'moviebox-api-steel.vercel.app',
 ];
 
 app.get('/api/proxy', async (req, res) => {
@@ -1079,7 +1080,7 @@ app.get('/api/stream', async (req, res) => {
 
   // Fallback: Moviebox-API (Vercel) — currently IP-blocked upstream, but
   // kept as a fallback in case direct resolution breaks.
-  const data = await movieboxFetch(`/api/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
+  const data = await movieboxFetch(`/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
   if (!data) return res.status(502).json({ error: 'Stream fetch failed' });
 
   // Return ALL streams (including VIP-locked with empty URLs) so client can show all resolutions
@@ -1207,7 +1208,7 @@ app.get('/api/stream/:subject_id/captions', async (req, res) => {
   }
 
   // Fallback: Moviebox-API (Vercel)
-  const data = await movieboxFetch(`/api/stream/${subject_id}/captions?detail_path=${encodeURIComponent(detail_path)}&se=${season}&ep=${episode}`);
+  const data = await movieboxFetch(`/stream/${subject_id}/captions?detail_path=${encodeURIComponent(detail_path)}&se=${season}&ep=${episode}`);
   if (!data) return res.status(502).json({ error: 'Captions fetch failed', ...empty });
   res.json(data);
 });
