@@ -7,9 +7,19 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const https = require('https');
 
+// Resolve the static front-end directory. Works both when running locally
+// (`node server.js`) and inside the Vercel serverless lambda, where the build
+// may locate `public` relative to __dirname or the current working directory.
+const PUBLIC_DIR = fs.existsSync(path.join(__dirname, 'public'))
+  ? path.join(__dirname, 'public')
+  : path.join(process.cwd(), 'public');
+
 const app = express();
 const PORT = process.env.PORT || 7860;
-const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app/api';
+// Moviebox-API backend. Override with API_URL env if you change the backend host.
+// Default points at the Vercel-deployed Moviebox-API so the site works even when
+// API_URL is not configured in the deployed environment.
+const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app';
 
 // TMDB for metadata (set TMDB_API_KEY env var for production)
 const TMDB_KEY = process.env.TMDB_API_KEY || '2dca580c2a14b55200e784d157207b4d';
@@ -101,7 +111,7 @@ async function mbFetchPlay(subjectId, slug, se, ep, forceRefresh = false) {
   return data;
 }
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(PUBLIC_DIR));
 app.use(express.json());
 
 // --- VIDEO PROXY (bypass CORS/Referer) ---
@@ -118,7 +128,6 @@ const ALLOWED_PROXY_HOSTS = [
   'pbcdn.aoneroom.com',
   'macdn.aoneroom.com',
   'h5-api.aoneroom.com',
-  'moviebox-api-steel.vercel.app',
 ];
 
 app.get('/api/proxy', async (req, res) => {
@@ -1080,7 +1089,7 @@ app.get('/api/stream', async (req, res) => {
 
   // Fallback: Moviebox-API (Vercel) — currently IP-blocked upstream, but
   // kept as a fallback in case direct resolution breaks.
-  const data = await movieboxFetch(`/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
+  const data = await movieboxFetch(`/api/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
   if (!data) return res.status(502).json({ error: 'Stream fetch failed' });
 
   // Return ALL streams (including VIP-locked with empty URLs) so client can show all resolutions
@@ -1208,7 +1217,7 @@ app.get('/api/stream/:subject_id/captions', async (req, res) => {
   }
 
   // Fallback: Moviebox-API (Vercel)
-  const data = await movieboxFetch(`/stream/${subject_id}/captions?detail_path=${encodeURIComponent(detail_path)}&se=${season}&ep=${episode}`);
+  const data = await movieboxFetch(`/api/stream/${subject_id}/captions?detail_path=${encodeURIComponent(detail_path)}&se=${season}&ep=${episode}`);
   if (!data) return res.status(502).json({ error: 'Captions fetch failed', ...empty });
   res.json(data);
 });
@@ -1245,13 +1254,19 @@ app.get('/api/tmdb-id', async (req, res) => {
   });
 });
 
-// Catch-all
+// Catch-all (client-side routing fallback)
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🎬 MovieBox running at http://localhost:${PORT}`);
-  console.log(`📡 Moviebox-API: ${MOVIEBOX_API}`);
-  console.log(`🔍 Search: MovieBox.ph (Hindi/Tamil/Telugu available)\n`);
-});
+// Export the Express app for Vercel (@vercel/node serverless) and only start
+// the HTTP server when run directly (node server.js / npm start).
+module.exports = app;
+
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🎬 MovieBox running at http://localhost:${PORT}`);
+    console.log(`📡 Moviebox-API: ${MOVIEBOX_API}`);
+    console.log(`🔍 Search: MovieBox.ph (Hindi/Tamil/Telugu available)\n`);
+  });
+}
