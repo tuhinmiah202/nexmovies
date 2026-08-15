@@ -639,29 +639,29 @@ app.get('/api/genre/:name', async (req, res) => {
 // --- Moviebox-API helpers ---
 async function movieboxFetch(endpoint) {
   const base = MOVIEBOX_API.replace(/\/api$/, '');
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  // Try these paths in order
   const urls = [
-    `${base}/api${endpoint.startsWith('/') ? '' : '/'}${endpoint}`,
-    `${base}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`
+    `${base}/api${cleanEndpoint}`,
+    `${base}${cleanEndpoint}`
   ];
 
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Referer': 'https://moviebox.ph/'
+    'Accept': 'application/json'
   };
 
   for (const url of urls) {
     try {
-      console.log(`Moviebox-API Request: ${url}`);
+      console.log(`[Moviebox-API] Fetching: ${url}`);
       const res = await fetch(url, { headers, timeout: 12000 });
       if (res.ok) {
         const json = await res.json();
         if (json) return json;
-      } else {
-        console.warn(`Moviebox-API Status ${res.status} for ${url}`);
       }
     } catch (e) {
-      console.warn(`Moviebox-API Fetch Failed: ${url} - ${e.message}`);
+      console.warn(`[Moviebox-API] Failed ${url}: ${e.message}`);
     }
   }
   return null;
@@ -669,15 +669,23 @@ async function movieboxFetch(endpoint) {
 
 function formatMovieboxItem(item) {
   if (!item) return null;
+  // Support for multiple common API field names
+  const id = item.subject_id || item.id || item.subjectId || item.movieId || '';
+  const title = item.name || item.title || item.titleName || item.movieName || 'Untitled';
+  const poster = item.poster_url || item.poster || (item.cover && item.cover.url) || item.image_url || item.thumb || item.img || '';
+  const slug = item.slug || item.detail_path || item.detailPath || item.path || '';
+
+  if (!title && !id) return null;
+
   return {
-    id: item.subject_id || item.id || item.subjectId || '',
-    title: item.name || item.title || item.titleName || 'Untitled',
-    poster: item.poster_url || item.poster || item.cover?.url || item.image_url || '',
-    backdrop: item.image_url || item.backdrop || item.stills?.url || item.poster_url || '',
-    slug: item.slug || item.detail_path || item.detailPath || '',
-    badge: item.badge || item.corner || '',
+    id: id,
+    title: title,
+    poster: poster,
+    backdrop: item.image_url || item.backdrop || (item.stills && item.stills.url) || poster || '',
+    slug: slug,
+    badge: item.badge || item.corner || item.tag || '',
     year: item.year || (item.releaseDate ? item.releaseDate.substring(0, 4) : ''),
-    rating: item.rating || item.imdbRatingValue || null,
+    rating: item.rating || item.imdbRatingValue || item.imdb || null,
     source: 'moviebox',
     type: 'moviebox',
     language: item.language || item.lang || item.locale || '',
@@ -685,12 +693,22 @@ function formatMovieboxItem(item) {
 }
 
 function processMovieboxResponse(data) {
-  const root = (data && data.data) || data;
-  if (!root) return [];
+  if (!data) return [];
+  // Handle cases where data is wrapped in a 'data' or 'items' or 'list' property
+  const root = data.data || data.items || data.list || data.results || (Array.isArray(data) ? data : null);
 
-  if (Array.isArray(root)) return root.map(formatMovieboxItem).filter(Boolean);
-  if (root.items && Array.isArray(root.items)) return root.items.map(formatMovieboxItem).filter(Boolean);
-  if (root.list && Array.isArray(root.list)) return root.list.map(formatMovieboxItem).filter(Boolean);
+  if (Array.isArray(root)) {
+    return root.map(formatMovieboxItem).filter(Boolean);
+  }
+
+  // If it's an object containing sections
+  if (root && typeof root === 'object' && !Array.isArray(root)) {
+    if (root.sections) return root.sections; // Handle already structured sections
+    // Try to find any array inside the object
+    for (const key in root) {
+      if (Array.isArray(root[key])) return root[key].map(formatMovieboxItem).filter(Boolean);
+    }
+  }
 
   return [];
 }
@@ -730,34 +748,37 @@ app.get('/api/home', async (req, res) => {
   const data = await movieboxFetch('/home');
   const root = (data && data.data) || data;
 
+  let sections = [];
   if (root && root.sections && Array.isArray(root.sections)) {
-    const sections = root.sections
-      .filter(s => s && s.items && s.items.length > 0)
+    sections = root.sections
+      .filter(s => s && (s.items || s.list) && (s.items || s.list).length > 0)
       .map(s => ({
         title: s.section || s.title || 'Trending',
-        items: s.items.map(formatMovieboxItem).filter(Boolean)
+        items: (s.items || s.list).map(formatMovieboxItem).filter(Boolean)
       }));
-    if (sections.length > 0) return res.json({ sections });
   }
 
-  const items = processMovieboxResponse(data);
-  if (items.length > 0) {
-    return res.json({
-      sections: [{ title: 'Trending Now', items: items.slice(0, 40) }]
-    });
+  if (sections.length === 0) {
+    const items = processMovieboxResponse(data);
+    if (items.length > 0) {
+      sections = [{ title: 'Trending Now', items: items.slice(0, 40) }];
+    }
   }
 
-  const tmdbData = await tmdbFetch('/trending/all/week');
-  if (tmdbData && tmdbData.results) {
-    return res.json({
-      sections: [{
-        title: 'Popular Right Now',
-        items: tmdbData.results.map(m => formatTmdbMovie(m))
-      }]
-    });
+  // Final fallback to TMDB Trending if everything else fails
+  if (sections.length === 0) {
+    try {
+      const tmdbData = await tmdbFetch('/trending/all/week');
+      if (tmdbData && tmdbData.results) {
+        sections = [{
+          title: 'Popular Right Now',
+          items: tmdbData.results.slice(0, 20).map(m => formatTmdbMovie(m))
+        }];
+      }
+    } catch (e) {}
   }
 
-  res.json({ sections: [] });
+  res.json({ sections });
 });
 
 // Home categories — sections grouped by type (movie, tv, animation)
