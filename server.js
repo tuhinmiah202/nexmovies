@@ -9,12 +9,7 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 7860;
-const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app/api';
-
-// TMDB for metadata (set TMDB_API_KEY env var for production)
-const TMDB_KEY = process.env.TMDB_API_KEY || '2dca580c2a14b55200e784d157207b4d';
-const TMDB_BASE = 'https://api.themoviedb.org/3';
-const TMDB_IMG = 'https://image.tmdb.org/t/p/w500';
+const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app';
 
 // Moviebox-API for search & content
 const MOVIEBOX_API = API_URL;
@@ -638,33 +633,28 @@ app.get('/api/genre/:name', async (req, res) => {
 
 // --- Moviebox-API helpers ---
 async function movieboxFetch(endpoint) {
-  const base = MOVIEBOX_API.replace(/\/api$/, '');
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-
-  // Try these paths in order
-  const urls = [
-    `${base}/api${cleanEndpoint}`,
-    `${base}${cleanEndpoint}`
-  ];
+  // Ensure we use the /api prefix as per user instructions
+  const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = `${MOVIEBOX_API}/api${cleanPath}`;
 
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'application/json'
   };
 
-  for (const url of urls) {
-    try {
-      console.log(`[Moviebox-API] Fetching: ${url}`);
-      const res = await fetch(url, { headers, timeout: 12000 });
-      if (res.ok) {
-        const json = await res.json();
-        if (json) return json;
-      }
-    } catch (e) {
-      console.warn(`[Moviebox-API] Failed ${url}: ${e.message}`);
+  try {
+    console.log(`[Moviebox-API] Fetching from: ${url}`);
+    const res = await fetch(url, { headers, timeout: 15000 });
+    if (!res.ok) {
+      console.error(`[Moviebox-API] HTTP Error ${res.status} for ${url}`);
+      return null;
     }
+    const json = await res.json();
+    return json;
+  } catch (e) {
+    console.error(`[Moviebox-API] Request Failed: ${url} - ${e.message}`);
+    return null;
   }
-  return null;
 }
 
 function formatMovieboxItem(item) {
