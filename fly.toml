@@ -1,12 +1,13 @@
-# fly.toml app configuration file generated for moviebox-frontend on 2026-07-30T23:40:30+06:00
+# fly.toml app configuration file generated for nexmovies on 2026-08-15T08:51:50Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'moviebox-frontend'
-primary_region = 'sin'
+app = 'nexmovies'
+primary_region = 'ams'
 
 [build]
+
 [env]
   NODE_ENV = 'production'
   PORT = '8080'
