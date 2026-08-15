@@ -20,11 +20,11 @@ RUN npm install --production
 COPY . .
 
 # Set environment variables
-ENV PORT=7860
+ENV PORT=8080
 ENV NODE_ENV=production
 
-# Expose port 7860 (Hugging Face requirement)
-EXPOSE 7860
+# Expose port 8080
+EXPOSE 8080
 
 # Start the application
 CMD ["node", "server.js"]
