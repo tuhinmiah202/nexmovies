@@ -8,7 +8,7 @@ const { spawn } = require('child_process');
 const https = require('https');
 
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 7860;
 const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app/api';
 
 // TMDB for metadata (set TMDB_API_KEY env var for production)
@@ -646,27 +646,12 @@ app.get('/api/genre/:name', async (req, res) => {
 
 // --- Moviebox-API helper ---
 async function movieboxFetch(endpoint) {
-  // Remove leading /api if the base URL already ends with /api
-  const cleanEndpoint = (endpoint.startsWith('/api/') || endpoint === '/api')
-    ? endpoint.replace('/api', '')
-    : endpoint;
-
-  const url = `${MOVIEBOX_API}${cleanEndpoint.startsWith('/') ? '' : '/'}${cleanEndpoint}`;
-  console.log(`Fetching from Moviebox-API: ${url}`);
   try {
-    const res = await fetch(url, { timeout: 15000 });
-    if (!res.ok) {
-      console.error(`Moviebox-API error status: ${res.status} for ${url}`);
-      return null;
-    }
-    const json = await res.json();
-    // Log a small part of the response for debugging if it seems empty
-    if (!json || (json.data && !json.data.sections && !json.sections)) {
-       console.log(`Moviebox-API returned potentially empty data for ${url}`);
-    }
-    return json;
+    const res = await fetch(`${MOVIEBOX_API}${endpoint}`, { timeout: 10000 });
+    if (!res.ok) throw new Error(`Moviebox-API ${res.status}`);
+    return await res.json();
   } catch (e) {
-    console.error(`Moviebox-API fetch failed: ${url} - ${e.message}`);
+    console.error(`Moviebox-API error: ${endpoint} - ${e.message}`);
     return null;
   }
 }
@@ -714,16 +699,15 @@ app.get('/api/trending', async (req, res) => {
 
 // Home - full sectioned layout from Moviebox-API /home (with TMDB fallback)
 app.get('/api/home', async (req, res) => {
-  const data = await movieboxFetch('/home');
-
-  // Try to find sections in the response (handle wrapped responses)
-  const sectionsData = (data && data.sections) || (data && data.data && data.data.sections);
+  const rawData = await movieboxFetch('/home');
+  const data = (rawData && rawData.data) || rawData;
+  const sectionsData = (data && data.sections) || (Array.isArray(data) ? [{ section: 'Trending', items: data }] : null);
 
   if (sectionsData && Array.isArray(sectionsData) && sectionsData.length > 0) {
     const sections = sectionsData
-      .filter(s => s.items && s.items.length > 0)
+      .filter(s => s && s.items && s.items.length > 0)
       .map(s => ({
-        title: s.section || s.title,
+        title: s.section || s.title || 'Trending',
         items: s.items.map(item => ({
           id: item.subject_id || item.id,
           title: item.name || item.title || 'Untitled',
@@ -739,25 +723,6 @@ app.get('/api/home', async (req, res) => {
     if (sections.length > 0) {
       return res.json({ sections });
     }
-  }
-
-  // Fallback: If it's just a flat list of items
-  const items = (data && data.items) || (data && data.data && data.data.items) || (Array.isArray(data) ? data : null);
-  if (items && Array.isArray(items) && items.length > 0) {
-    return res.json({
-      sections: [{
-        title: 'Trending',
-        items: items.slice(0, 40).map(item => ({
-          id: item.subject_id || item.id,
-          title: item.name || item.title || 'Untitled',
-          poster: item.poster_url || item.poster || '',
-          slug: item.slug || item.detail_path,
-          badge: item.badge || '',
-          source: 'moviebox',
-          type: 'moviebox',
-        }))
-      }]
-    });
   }
 
   res.json({ sections: [] });
@@ -1273,14 +1238,7 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🎬 MovieBox running at http://0.0.0.0:${PORT}`);
+  console.log(`\n🎬 MovieBox running at http://localhost:${PORT}`);
   console.log(`📡 Moviebox-API: ${MOVIEBOX_API}`);
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('There was an uncaught error', err);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.log(`🔍 Search: MovieBox.ph (Hindi/Tamil/Telugu available)\n`);
 });

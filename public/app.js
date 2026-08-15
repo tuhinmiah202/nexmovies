@@ -268,10 +268,15 @@ document.addEventListener('click', (e) => {
 async function apiFetch(url) {
   try {
     const res = await fetch(url);
-    return await res.json();
+    if (!res.ok) {
+      console.warn(`API request failed: ${url} (${res.status})`);
+      return { sections: [], items: [], movies: [] };
+    }
+    const data = await res.json();
+    return data || { sections: [], items: [], movies: [] };
   } catch (e) {
     console.error('API error:', url, e);
-    return { movies: [] };
+    return { sections: [], items: [], movies: [] };
   }
 }
 
@@ -399,13 +404,15 @@ async function loadHomePage() {
     return;
   }
 
-  // Hero carousel — pull ONLY from the "Recently Released Movies" collection
-  // (movie-only feed with proper backdrops, year, genre and rating).
+  // Hero carousel
   let heroSlides = [];
   try {
     const rec = await apiFetch('/api/recent-movies');
-    heroSlides = (rec.items || []).filter(it => it.type === 'movie' && it.backdrop);
-  } catch (e) { heroSlides = []; }
+    const items = rec.items || rec.movies || [];
+    if (Array.isArray(items)) {
+      heroSlides = items.filter(it => it && it.backdrop);
+    }
+  } catch (e) { console.error('Hero fetch error:', e); heroSlides = []; }
 
   // Fallback only if the recent-movies feed is unavailable: use the Banner
   // section so the hero never renders empty.
@@ -467,20 +474,22 @@ async function loadHomePage() {
       </div>`;
   }
 
-  // Render each real section as a horizontal row with overlay carousel arrows
+  // Render each real section as a horizontal row
   for (const section of sections) {
+    if (!section) continue;
     const items = section.items || [];
     if (!items.length) continue;
 
+    const title = section.title || section.section || 'Untitled';
     // Skip the section that the hero fallback is showing (avoid duplicate row)
-    if (heroRowTitle && section.title === heroRowTitle && hero) continue;
+    if (heroRowTitle && title === heroRowTitle && hero) continue;
 
-    const sectionKey = section.title.replace(/^[^\w+]+|[^\w+]+$/g, '').toLowerCase();
-    html += `<div class="movie-row" data-section="${esc(sectionKey)}" data-section-title="${esc(section.title)}" data-page="1">
+    const sectionKey = String(title).replace(/^[^\w+]+|[^\w+]+$/g, '').toLowerCase();
+    html += `<div class="movie-row" data-section="${esc(sectionKey)}" data-section-title="${esc(title)}" data-page="1">
       <div class="row-header">
-        <h2 class="row-title">${esc(section.title)}</h2>
+        <h2 class="row-title">${esc(title)}</h2>
         <div class="row-header-right">
-          <a href="#" class="row-more" data-section="${esc(sectionKey)}" data-section-title="${esc(section.title)}">More
+          <a href="#" class="row-more" data-section="${esc(sectionKey)}" data-section-title="${esc(title)}">More
             <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/></svg>
           </a>
         </div>
