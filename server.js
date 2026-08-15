@@ -9,7 +9,7 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app/api';
+const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app';
 
 // TMDB for metadata (set TMDB_API_KEY env var for production)
 const TMDB_KEY = process.env.TMDB_API_KEY || '2dca580c2a14b55200e784d157207b4d';
@@ -646,12 +646,18 @@ app.get('/api/genre/:name', async (req, res) => {
 
 // --- Moviebox-API helper ---
 async function movieboxFetch(endpoint) {
+  const url = `${MOVIEBOX_API}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+  console.log(`Fetching from Moviebox-API: ${url}`);
   try {
-    const res = await fetch(`${MOVIEBOX_API}${endpoint}`, { timeout: 10000 });
-    if (!res.ok) throw new Error(`Moviebox-API ${res.status}`);
-    return await res.json();
+    const res = await fetch(url, { timeout: 15000 });
+    if (!res.ok) {
+      console.error(`Moviebox-API error status: ${res.status} for ${url}`);
+      return null;
+    }
+    const json = await res.json();
+    return json;
   } catch (e) {
-    console.error(`Moviebox-API error: ${endpoint} - ${e.message}`);
+    console.error(`Moviebox-API fetch failed: ${url} - ${e.message}`);
     return null;
   }
 }
@@ -1080,7 +1086,7 @@ app.get('/api/stream', async (req, res) => {
 
   // Fallback: Moviebox-API (Vercel) — currently IP-blocked upstream, but
   // kept as a fallback in case direct resolution breaks.
-  const data = await movieboxFetch(`/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
+  const data = await movieboxFetch(`/api/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
   if (!data) return res.status(502).json({ error: 'Stream fetch failed' });
 
   // Return ALL streams (including VIP-locked with empty URLs) so client can show all resolutions
@@ -1208,7 +1214,7 @@ app.get('/api/stream/:subject_id/captions', async (req, res) => {
   }
 
   // Fallback: Moviebox-API (Vercel)
-  const data = await movieboxFetch(`/stream/${subject_id}/captions?detail_path=${encodeURIComponent(detail_path)}&se=${season}&ep=${episode}`);
+  const data = await movieboxFetch(`/api/stream/${subject_id}/captions?detail_path=${encodeURIComponent(detail_path)}&se=${season}&ep=${episode}`);
   if (!data) return res.status(502).json({ error: 'Captions fetch failed', ...empty });
   res.json(data);
 });
@@ -1251,7 +1257,14 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🎬 MovieBox running at http://localhost:${PORT}`);
+  console.log(`\n🎬 MovieBox running at http://0.0.0.0:${PORT}`);
   console.log(`📡 Moviebox-API: ${MOVIEBOX_API}`);
-  console.log(`🔍 Search: MovieBox.ph (Hindi/Tamil/Telugu available)\n`);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('There was an uncaught error', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
