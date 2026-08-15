@@ -9,7 +9,7 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app';
+const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app/api';
 
 // TMDB for metadata (set TMDB_API_KEY env var for production)
 const TMDB_KEY = process.env.TMDB_API_KEY || '2dca580c2a14b55200e784d157207b4d';
@@ -646,7 +646,12 @@ app.get('/api/genre/:name', async (req, res) => {
 
 // --- Moviebox-API helper ---
 async function movieboxFetch(endpoint) {
-  const url = `${MOVIEBOX_API}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+  // Remove leading /api if the base URL already ends with /api
+  const cleanEndpoint = (endpoint.startsWith('/api/') || endpoint === '/api')
+    ? endpoint.replace('/api', '')
+    : endpoint;
+
+  const url = `${MOVIEBOX_API}${cleanEndpoint.startsWith('/') ? '' : '/'}${cleanEndpoint}`;
   console.log(`Fetching from Moviebox-API: ${url}`);
   try {
     const res = await fetch(url, { timeout: 15000 });
@@ -655,6 +660,10 @@ async function movieboxFetch(endpoint) {
       return null;
     }
     const json = await res.json();
+    // Log a small part of the response for debugging if it seems empty
+    if (!json || (json.data && !json.data.sections && !json.sections)) {
+       console.log(`Moviebox-API returned potentially empty data for ${url}`);
+    }
     return json;
   } catch (e) {
     console.error(`Moviebox-API fetch failed: ${url} - ${e.message}`);
@@ -706,22 +715,25 @@ app.get('/api/trending', async (req, res) => {
 // Home - full sectioned layout from Moviebox-API /home (with TMDB fallback)
 app.get('/api/home', async (req, res) => {
   const data = await movieboxFetch('/home');
-  if (data && Array.isArray(data.sections) && data.sections.length > 0) {
-    const sections = data.sections
+
+  // Try to find sections in the response (handle wrapped responses)
+  const sectionsData = (data && data.sections) || (data && data.data && data.data.sections);
+
+  if (sectionsData && Array.isArray(sectionsData) && sectionsData.length > 0) {
+    const sections = sectionsData
       .filter(s => s.items && s.items.length > 0)
       .map(s => ({
-        title: s.section,
+        title: s.section || s.title,
         items: s.items.map(item => ({
-          id: item.subject_id,
-          title: item.name || 'Untitled',
-          poster: item.poster_url || '',
-          backdrop: item.image_url || item.poster_url || '',
-          slug: item.slug,
+          id: item.subject_id || item.id,
+          title: item.name || item.title || 'Untitled',
+          poster: item.poster_url || item.poster || '',
+          backdrop: item.image_url || item.backdrop || item.poster_url || '',
+          slug: item.slug || item.detail_path,
           badge: item.badge || '',
           source: 'moviebox',
           type: 'moviebox',
-          // Preserve language info from Moviebox-API when available
-          language: item.language || item.lang || item.locale || '',
+          language: item.language || item.lang || '',
         })),
       }));
     if (sections.length > 0) {
@@ -729,21 +741,25 @@ app.get('/api/home', async (req, res) => {
     }
   }
 
-  // Fallback: reuse trending flat list as a single section
-  const trending = await movieboxFetch('/home');
-  if (data && data.sections) {
-    const all = [];
-    for (const s of data.sections) {
-      for (const it of (s.items || [])) {
-        all.push({
-          id: it.subject_id, title: it.name || 'Untitled',
-          poster: it.poster_url || '', slug: it.slug,
-          badge: it.badge || '', source: 'moviebox', type: 'moviebox',
-        });
-      }
-    }
-    if (all.length) return res.json({ sections: [{ title: 'Trending', items: all.slice(0, 40) }] });
+  // Fallback: If it's just a flat list of items
+  const items = (data && data.items) || (data && data.data && data.data.items) || (Array.isArray(data) ? data : null);
+  if (items && Array.isArray(items) && items.length > 0) {
+    return res.json({
+      sections: [{
+        title: 'Trending',
+        items: items.slice(0, 40).map(item => ({
+          id: item.subject_id || item.id,
+          title: item.name || item.title || 'Untitled',
+          poster: item.poster_url || item.poster || '',
+          slug: item.slug || item.detail_path,
+          badge: item.badge || '',
+          source: 'moviebox',
+          type: 'moviebox',
+        }))
+      }]
+    });
   }
+
   res.json({ sections: [] });
 });
 
@@ -1086,7 +1102,7 @@ app.get('/api/stream', async (req, res) => {
 
   // Fallback: Moviebox-API (Vercel) — currently IP-blocked upstream, but
   // kept as a fallback in case direct resolution breaks.
-  const data = await movieboxFetch(`/api/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
+  const data = await movieboxFetch(`/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
   if (!data) return res.status(502).json({ error: 'Stream fetch failed' });
 
   // Return ALL streams (including VIP-locked with empty URLs) so client can show all resolutions
@@ -1214,7 +1230,7 @@ app.get('/api/stream/:subject_id/captions', async (req, res) => {
   }
 
   // Fallback: Moviebox-API (Vercel)
-  const data = await movieboxFetch(`/api/stream/${subject_id}/captions?detail_path=${encodeURIComponent(detail_path)}&se=${season}&ep=${episode}`);
+  const data = await movieboxFetch(`/stream/${subject_id}/captions?detail_path=${encodeURIComponent(detail_path)}&se=${season}&ep=${episode}`);
   if (!data) return res.status(502).json({ error: 'Captions fetch failed', ...empty });
   res.json(data);
 });
