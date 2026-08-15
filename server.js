@@ -646,14 +646,25 @@ app.get('/api/genre/:name', async (req, res) => {
 
 // --- Moviebox-API helper ---
 async function movieboxFetch(endpoint) {
-  try {
-    const res = await fetch(`${MOVIEBOX_API}${endpoint}`, { timeout: 10000 });
-    if (!res.ok) throw new Error(`Moviebox-API ${res.status}`);
-    return await res.json();
-  } catch (e) {
-    console.error(`Moviebox-API error: ${endpoint} - ${e.message}`);
-    return null;
+  // Try both /api/endpoint and /endpoint automatically
+  const base = MOVIEBOX_API.replace(/\/api$/, '');
+  const urls = [
+    `${base}/api${endpoint.startsWith('/') ? '' : '/'}${endpoint}`,
+    `${base}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { timeout: 10000 });
+      if (res.ok) {
+        const json = await res.json();
+        if (json) return json;
+      }
+    } catch (e) {
+      console.warn(`Fetch failed for ${url}: ${e.message}`);
+    }
   }
+  return null;
 }
 
 function formatMovieboxItem(item) {
@@ -699,33 +710,46 @@ app.get('/api/trending', async (req, res) => {
 
 // Home - full sectioned layout from Moviebox-API /home (with TMDB fallback)
 app.get('/api/home', async (req, res) => {
-  const rawData = await movieboxFetch('/home');
-  const data = (rawData && rawData.data) || rawData;
-  const sectionsData = (data && data.sections) || (Array.isArray(data) ? [{ section: 'Trending', items: data }] : null);
+  const data = await movieboxFetch('/home');
 
-  if (sectionsData && Array.isArray(sectionsData) && sectionsData.length > 0) {
-    const sections = sectionsData
-      .filter(s => s && s.items && s.items.length > 0)
-      .map(s => ({
-        title: s.section || s.title || 'Trending',
-        items: s.items.map(item => ({
-          id: item.subject_id || item.id,
-          title: item.name || item.title || 'Untitled',
-          poster: item.poster_url || item.poster || '',
-          backdrop: item.image_url || item.backdrop || item.poster_url || '',
-          slug: item.slug || item.detail_path,
-          badge: item.badge || '',
-          source: 'moviebox',
-          type: 'moviebox',
-          language: item.language || item.lang || '',
-        })),
-      }));
-    if (sections.length > 0) {
-      return res.json({ sections });
+  const processItems = (items) => (items || []).map(item => ({
+    id: item.subject_id || item.id,
+    title: item.name || item.title || 'Untitled',
+    poster: item.poster_url || item.poster || '',
+    backdrop: item.image_url || item.backdrop || item.poster_url || '',
+    slug: item.slug || item.detail_path || '',
+    badge: item.badge || '',
+    source: 'moviebox',
+    type: 'moviebox',
+    language: item.language || item.lang || '',
+  }));
+
+  const parsed = (data && data.data) || data;
+  let sections = [];
+
+  if (parsed && parsed.sections) {
+    sections = parsed.sections.map(s => ({
+      title: s.section || s.title || 'Trending',
+      items: processItems(s.items)
+    }));
+  } else if (Array.isArray(parsed)) {
+    sections = [{ title: 'Trending', items: processItems(parsed) }];
+  } else if (parsed && parsed.items) {
+    sections = [{ title: 'Trending', items: processItems(parsed.items) }];
+  }
+
+  // Fallback to TMDB Trending if Moviebox API returns nothing
+  if (sections.length === 0) {
+    const tmdbData = await tmdbFetch('/trending/all/week');
+    if (tmdbData && tmdbData.results) {
+      sections = [{
+        title: 'Popular Right Now',
+        items: tmdbData.results.map(m => formatTmdbMovie(m))
+      }];
     }
   }
 
-  res.json({ sections: [] });
+  res.json({ sections });
 });
 
 // Home categories — sections grouped by type (movie, tv, animation)
