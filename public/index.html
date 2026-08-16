@@ -3,9 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HD-MovieBox - Watch Movies & TV Shows Online</title>
+  <title>Nexmovies - Watch Movies & TV Shows Online</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="overlay-nav.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1db954">
+  <link rel="apple-touch-icon" href="icon.png">
   <!-- ArtPlayer -->
   <script src="https://cdn.jsdelivr.net/npm/artplayer@5.1.7/dist/artplayer.min.js"></script>
   <!-- dash.js for DASH streaming -->
@@ -20,8 +23,8 @@
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
-      <img src="image-1.apJjVir2.svg" alt="HD-MovieBox" class="logo-icon logo-icon-img">
-      <span class="logo-word"><span class="logo-hd">HD</span><span class="logo-dash">-</span>Movie<span class="text-green">Box</span></span>
+      <img src="icon.png" alt="Nexmovies" class="logo-icon logo-icon-img" onerror="this.src='image-1.apJjVir2.svg'">
+      <span class="logo-word"><span class="logo-hd">Nex</span><span class="text-green">movies</span></span>
     </div>
 
     <!-- Language Selector -->
@@ -71,11 +74,11 @@
       <div class="nav-divider"></div>
       <a href="#" class="nav-item nav-disabled" title="Not available right now">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>
-        <span>MovieBox App</span>
+        <span>Nexmovies App</span>
       </a>
       <a href="#" class="nav-item nav-disabled" title="Not available right now">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 4v2h-2V4H8v2H6V4H4v18h16V4h-2zM8 18H6v-2h2v2zm0-4H6v-2h2v2zm6 4h-4v-2h4v2zm0-4h-4v-2h4v2zm4 4h-2v-2h2v2zm0-4h-2v-2h2v2z"/></svg>
-        <span>Moviebox TV APK</span>
+        <span>Nexmovies TV APK</span>
       </a>
       <a href="#" class="nav-item nav-disabled" title="Not available right now">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
@@ -93,16 +96,15 @@
     </nav>
 
     <!-- Get MovieBox Section -->
-    <div class="sidebar-bottom">
       <div class="get-app-box">
-        <div class="get-app-title">Get MovieBox</div>
-        <a href="#" class="get-app-btn get-app-main">
+        <div class="get-app-title">Get Nexmovies</div>
+        <a href="#" class="get-app-btn get-app-main" id="installAppBtn">
           <div class="get-app-btn-icon">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>
           </div>
           <div class="get-app-btn-text">
-            <span class="get-app-btn-title">MovieBox ...</span>
-            <span class="get-app-btn-sub">For mobile & de...</span>
+            <span class="get-app-btn-title">Nexmovies ...</span>
+            <span class="get-app-btn-sub">Install App</span>
           </div>
           <svg class="get-app-btn-arrow" viewBox="0 0 24 24" fill="currentColor"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
         </a>
@@ -116,7 +118,6 @@
           </div>
         </a>
       </div>
-    </div>
   </aside>
 
   <button class="sidebar-toggle" id="sidebarToggle">
@@ -134,9 +135,9 @@
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
           Go Premium
         </a>
-        <a href="#" class="topbar-btn btn-download soon-faded" title="Not available right now">
+        <a href="#" class="topbar-btn btn-download" id="topInstallBtn">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-          Download App
+          <span>Install App</span>
         </a>
         <a href="#" class="topbar-btn btn-login">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>

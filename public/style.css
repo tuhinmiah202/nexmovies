@@ -1552,42 +1552,6 @@ body {
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
 }
 
-/* ===== RESPONSIVE ===== */
-@media (max-width: 1200px) {
-  .topbar-actions { display: none; }
-}
-
-@media (max-width: 900px) {
-  .detail-top { flex-direction: column; }
-  .detail-resources { width: 100%; max-height: none; }
-}
-
-@media (max-width: 768px) {
-  .sidebar { transform: translateX(-100%); }
-  .sidebar.open { transform: translateX(0); }
-  .sidebar-toggle { display: flex; }
-  .main-content { margin-left: 0; }
-  .movie-card { width: 130px; }
-  .card-poster { width: 130px; height: 190px; }
-  .content-area { padding: 16px; }
-  .episode-grid { grid-template-columns: repeat(4, 1fr); }
-  .hero-banner { height: 250px; }
-  .hero-title { font-size: 22px; }
-  .hero-content { left: 16px; right: 16px; bottom: 20px; max-width: none; padding: 16px 18px; }
-  .row-arrow { width: 32px; height: 32px; }
-  .mt-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
-  .topbar-actions { display: none; }
-}
-
-@media (max-width: 480px) {
-  .movie-card { width: 110px; }
-  .card-poster { width: 110px; height: 160px; }
-  .hero-banner { height: 200px; }
-  .hero-title { font-size: 18px; }
-  .hero-play-btn { padding: 10px 20px; font-size: 13px; }
-  .hero-arrow { width: 38px; height: 38px; }
-}
-
 /* --- Categories / Genre browser --- */
 .categories-page { padding-bottom: 40px; }
 .page-heading { font-size: 26px; font-weight: 700; margin: 8px 0 24px; color: #fff; }
@@ -1625,8 +1589,80 @@ body {
 .dub-tabs { margin-bottom: 14px; }
 .dub-tab { text-transform: none !important; }
 
+/* ===== RESPONSIVE ===== */
+@media (max-width: 1200px) {
+  .topbar-actions { display: none; }
+}
+
+@media (max-width: 900px) {
+  .detail-top { flex-direction: column; }
+  .detail-resources { width: 100%; max-height: none; }
+}
+
 @media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-toggle { display: flex; }
+  .main-content { margin-left: 0; }
+
+  /* Mobile Topbar Adjustments */
+  .topbar {
+    padding: 10px 10px 10px 56px !important;
+    gap: 6px;
+    justify-content: flex-start;
+  }
+  .search-box {
+    max-width: 160px; /* Force search box to be small on mobile */
+    padding: 0 8px;
+    flex: 1;
+    min-width: 0;
+  }
+  .search-box input {
+    padding: 8px 4px;
+    font-size: 13px;
+  }
+  .topbar-actions {
+    display: flex !important;
+    margin-left: auto;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .topbar-btn {
+    padding: 6px;
+    background: var(--green);
+    border: none;
+    color: #000;
+    display: none;
+    border-radius: 6px;
+  }
+  #topInstallBtn {
+    display: inline-flex !important;
+  }
+  .topbar-btn span { display: none; } /* Hide text on mobile */
+  .topbar-btn svg { width: 22px; height: 22px; }
+  .btn-premium, .btn-login { display: none !important; } /* Hide premium and login on mobile */
+
+  .movie-card { width: 130px; }
+  .card-poster { width: 130px; height: 190px; }
+  .content-area { padding: 16px; }
+  .episode-grid { grid-template-columns: repeat(4, 1fr); }
+  .hero-banner { height: 250px; }
+  .hero-title { font-size: 22px; }
+  .hero-content { left: 16px; right: 16px; bottom: 20px; max-width: none; padding: 16px 18px; }
+  .row-arrow { width: 32px; height: 32px; }
+  .mt-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+
+  /* Genre Chip Responsive */
   .genre-chip-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
   .genre-chip { padding: 10px 12px; font-size: 12px; }
   .page-heading { font-size: 20px; }
+}
+
+@media (max-width: 480px) {
+  .movie-card { width: 110px; }
+  .card-poster { width: 110px; height: 160px; }
+  .hero-banner { height: 200px; }
+  .hero-title { font-size: 18px; }
+  .hero-play-btn { padding: 10px 20px; font-size: 13px; }
+  .hero-arrow { width: 38px; height: 38px; }
 }

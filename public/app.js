@@ -80,6 +80,41 @@ async function playTranscodedQuality(height) {
   return false;
 }
 
+// --- PWA Installation ---
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  console.log('PWA Install prompt ready');
+});
+
+async function triggerInstall() {
+  if (!deferredPrompt) {
+    alert('Installation is currently handled by your browser menu (Add to Home Screen) or Nexmovies is already installed.');
+    return;
+  }
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+  console.log(`User response to the install prompt: ${outcome}`);
+  deferredPrompt = null;
+}
+
+document.querySelectorAll('#installAppBtn, #topInstallBtn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    triggerInstall();
+  });
+});
+
+// Register Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('SW Registered', reg))
+      .catch(err => console.log('SW Registration Failed', err));
+  });
+}
+
 // --- Sidebar ---
 sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
 document.addEventListener('click', (e) => {
@@ -100,7 +135,7 @@ document.querySelectorAll('.nav-item[data-page]').forEach(item => {
   });
 });
 
-// --- HD-MovieBox logo click → back to home page ---
+// --- Nexmovies logo click → back to home page ---
 (function bindLogoHome() {
   const logo = document.querySelector('.sidebar-logo');
   if (!logo) return;
@@ -176,6 +211,13 @@ function detailBack() {
   }
   setTimeout(() => window.scrollTo({ top: st.scrollY || 0 }), 50);
 }
+
+// Handle Back Button
+window.onpopstate = (event) => {
+  if (document.querySelector('.detail-page')) {
+    detailBack();
+  }
+};
 
 // --- Search + Autocomplete ---
 let suggestTimeout = null;
@@ -1417,7 +1459,7 @@ function attachCardListeners() {
       const id = card.dataset.id;
       const slug = card.dataset.slug;
       if (source !== 'moviebox' || !id || !slug) {
-        alert('Download available for MovieBox content only.');
+        alert('Download available for Nexmovies content only.');
         return;
       }
       await triggerCardDownload(id, slug, btn);
@@ -1512,6 +1554,12 @@ async function openDetail(source, type, id, slug) {
   showLoading();
   stopCurrentTranscode();
   captureBrowseState();
+
+  // Push to history for back button support
+  if (!document.querySelector('.detail-page')) {
+    history.pushState({ detail: id }, "");
+  }
+
   contentArea.innerHTML = '';
 
   try {
@@ -1711,7 +1759,7 @@ async function openDetail(source, type, id, slug) {
     if (detail.type === 'tv') {
       const resource = detail.resource || {};
       const seasonsData = resource.seasons || [];
-      const sourceName = resource.source || 'MovieBox.ph';
+      const sourceName = resource.source || 'Nexmovies';
 
       const seasonMap = {};
       for (const s of seasonsData) {
@@ -1754,7 +1802,7 @@ async function openDetail(source, type, id, slug) {
         </div>`;
     } else {
       const resource = detail.resource || {};
-      const sourceName = resource.source || 'MovieBox.ph';
+      const sourceName = resource.source || 'Nexmovies';
       resourcesHtml = `
         <div class="detail-resources">
           ${dubSelectorHtml}
@@ -1832,7 +1880,7 @@ async function openDetail(source, type, id, slug) {
     contentArea.innerHTML = `
       <div class="detail-page">
         <div class="detail-nav-row">
-          <button class="back-btn detail-back-btn" onclick="detailBack()">
+          <button class="back-btn detail-back-btn" onclick="history.back()">
             <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
             Back
           </button>
