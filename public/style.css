@@ -265,16 +265,17 @@ body {
 .sidebar-toggle {
   display: none;
   position: fixed;
-  top: 14px; left: 14px;
-  z-index: 200;
+  top: 12px; left: 12px;
+  z-index: 250; /* Increase z-index to stay on top */
   background: var(--sidebar-bg);
   border: 1px solid var(--border);
   color: var(--text);
-  width: 40px; height: 40px;
+  width: 44px; height: 44px; /* Slightly larger hit area */
   border-radius: 8px;
   cursor: pointer;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.5); /* Make it stand out */
 }
 
 .sidebar-toggle svg { width: 22px; height: 22px; }
@@ -1628,18 +1629,19 @@ body {
     flex-shrink: 0;
   }
   .topbar-btn {
-    padding: 6px;
+    padding: 6px 10px;
     background: var(--green);
     border: none;
     color: #000;
     display: none;
     border-radius: 6px;
+    font-size: 11px; /* Smaller font for mobile text */
   }
   #topInstallBtn {
     display: inline-flex !important;
   }
-  .topbar-btn span { display: none; } /* Hide text on mobile */
-  .topbar-btn svg { width: 22px; height: 22px; }
+  .topbar-btn span { display: inline-flex; } /* Show text on mobile */
+  .topbar-btn svg { width: 18px; height: 18px; }
   .btn-premium, .btn-login { display: none !important; } /* Hide premium and login on mobile */
 
   .movie-card { width: 130px; }
