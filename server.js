@@ -9,7 +9,7 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 7860;
-const API_URL = 'https://moviebox-api-steel.vercel.app';
+const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app';
 
 // TMDB for metadata (set TMDB_API_KEY env var for production)
 const TMDB_KEY = process.env.TMDB_API_KEY || '2dca580c2a14b55200e784d157207b4d';
@@ -143,8 +143,8 @@ app.get('/api/proxy', async (req, res) => {
   try {
     const proxyHeaders = {
       ...CDN_HEADERS,
-      'Referer': url.includes('aoneroom') || url.includes('moviebox') ? 'https://moviebox.ph/' : new URL(url).origin,
-      'Origin': new URL(url).origin
+      'Referer': 'https://moviebox.ph/',
+      'Origin': 'https://moviebox.ph'
     };
 
     if (req.headers.range) {
@@ -1064,22 +1064,12 @@ app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
   if (!subject_id || !slug) return res.status(400).json({ error: 'Missing params' });
 
-  const season = se || 0; // default to 0 for movies
-  const episode = ep || 0;
+  const season = parseInt(se) || 1;
+  const episode = parseInt(ep) || 1;
 
   try {
-    // Try Moviebox-API first (your new backend)
-    const data = await movieboxFetch(`/api/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
-    if (data && (data.sources || data.dash || data.hls)) {
-      return res.json(data);
-    }
-  } catch (e) {
-    console.error('API backend stream error:', e.message);
-  }
-
-  try {
-    // Fallback: Direct upstream resolution
-    const play = await mbFetchPlay(subject_id, slug, season || 1, episode || 1);
+    // 1. Try Direct upstream resolution FIRST (Proven to work on Fly.io)
+    const play = await mbFetchPlay(subject_id, slug, season, episode);
     const sources = (play.streams || []).map(s => ({
       resolution: `${s.resolutions}p`,
       format: s.format,
@@ -1088,6 +1078,7 @@ app.get('/api/stream', async (req, res) => {
       duration: s.duration,
       codec: s.codecName,
     }));
+
     if (!!play.hasResource && (sources.length > 0 || (play.dash || []).length > 0 || (play.hls || []).length > 0)) {
       return res.json({
         subject_id, se: season, ep: episode,
@@ -1101,6 +1092,16 @@ app.get('/api/stream', async (req, res) => {
     }
   } catch (e) {
     console.error('Direct fallback stream error:', e.message);
+  }
+
+  try {
+    // 2. Try Moviebox-API as Fallback
+    const data = await movieboxFetch(`/api/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
+    if (data && (data.sources || data.dash || data.hls)) {
+      return res.json(data);
+    }
+  } catch (e) {
+    console.error('API backend stream error:', e.message);
   }
 
   res.status(502).json({ error: 'Stream unavailable' });
