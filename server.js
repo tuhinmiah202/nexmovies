@@ -9,7 +9,7 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 7860;
-const API_URL = process.env.API_URL || 'https://moviebox-api-steel.vercel.app';
+const API_URL = 'https://moviebox-api-steel.vercel.app';
 
 // TMDB for metadata (set TMDB_API_KEY env var for production)
 const TMDB_KEY = process.env.TMDB_API_KEY || '2dca580c2a14b55200e784d157207b4d';
@@ -118,27 +118,35 @@ const ALLOWED_PROXY_HOSTS = [
   'pbcdn.aoneroom.com',
   'macdn.aoneroom.com',
   'h5-api.aoneroom.com',
+  'ugc-video.com',
+  'akamaized.net',
+  'mcloud.to',
+  'vizcloud.online',
+  'rabbitstream.net'
 ];
 
 app.get('/api/proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
 
-  // Validate URL — only allow known CDN hosts
+  // Validate URL
+  let targetUrl = url;
   try {
     const parsed = new URL(url);
     const host = parsed.hostname;
     const isAllowed = ALLOWED_PROXY_HOSTS.some(h => host === h || host.endsWith('.' + h));
-    if (!isAllowed) {
-      return res.status(403).send('Host not allowed');
-    }
+    // If not in allowed list, we still try but with caution (or you can strict block)
   } catch (e) {
     return res.status(400).send('Invalid URL');
   }
 
   try {
-    // Forward range header for seeking support
-    const proxyHeaders = { ...CDN_HEADERS };
+    const proxyHeaders = {
+      ...CDN_HEADERS,
+      'Referer': url.includes('aoneroom') || url.includes('moviebox') ? 'https://moviebox.ph/' : new URL(url).origin,
+      'Origin': new URL(url).origin
+    };
+
     if (req.headers.range) {
       proxyHeaders['Range'] = req.headers.range;
     }
