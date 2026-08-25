@@ -11,12 +11,8 @@ const app = express();
 const PORT = process.env.PORT || 7860;
 const API_URL = 'https://moviebox-api-steel.vercel.app';
 
-// TMDB for metadata
 const TMDB_KEY = process.env.TMDB_API_KEY || '2dca580c2a14b55200e784d157207b4d';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
-const TMDB_IMG = 'https://image.tmdb.org/t/p/w500';
-
-const MOVIEBOX_API = API_URL;
 
 const CDN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -29,7 +25,7 @@ const CDN_HEADERS = {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- ADVANCED VIDEO PROXY (DASH/HLS/MP4) ---
+// --- ADVANCED PROXY WITH MANIFEST REWRITING ---
 app.get('/api/proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
@@ -48,28 +44,55 @@ app.get('/api/proxy', async (req, res) => {
       return res.status(response.status).send(`Upstream error: ${response.status}`);
     }
 
-    const contentType = response.headers.get('content-type');
+    const contentType = response.headers.get('content-type') || '';
+    const isM3U8 = url.includes('.m3u8') || contentType.includes('mpegurl');
+    const isMPD = url.includes('.mpd') || contentType.includes('dash+xml');
 
-    // For Manifest files (DASH/HLS), we need to rewrite URLs inside them to use our proxy
-    if (contentType && (contentType.includes('mpegurl') || contentType.includes('dash+xml') || url.includes('.mpd') || url.includes('.m3u8'))) {
+    // Handle HLS (.m3u8) Rewriting
+    if (isM3U8) {
+      let text = await response.text();
+      const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
+      const lines = text.split('\n');
+      const rewritten = lines.map(line => {
+        if (!line.trim() || line.startsWith('#')) return line;
+        const absolute = line.startsWith('http') ? line : new URL(line, baseUrl).href;
+        return `/api/proxy?url=${encodeURIComponent(absolute)}`;
+      }).join('\n');
+
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.send(rewritten);
+    }
+
+    // Handle DASH (.mpd) Rewriting
+    if (isMPD) {
       let text = await response.text();
       const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
 
-      // Rewrite logic: relative URLs to absolute, then wrap in our proxy
-      // This is a simplified version, real one needs more regex
-      res.setHeader('Content-Type', contentType);
+      // Inject BaseURL to point to our proxy
+      // This forces the player to fetch all segments through our proxy
+      const proxyBase = `${req.protocol}://${req.get('host')}/api/proxy?url=${encodeURIComponent(baseUrl)}`;
+
+      if (text.includes('<BaseURL>')) {
+        text = text.replace(/<BaseURL>.*?<\/BaseURL>/g, `<BaseURL>${proxyBase}</BaseURL>`);
+      } else {
+        text = text.replace('<Period', `<BaseURL>${proxyBase}</BaseURL><Period`);
+      }
+
+      res.setHeader('Content-Type', 'application/dash+xml');
       res.setHeader('Access-Control-Allow-Origin', '*');
       return res.send(text);
     }
 
+    // Regular video/binary stream
     if (contentType) res.setHeader('Content-Type', contentType);
-    if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
-    if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
+    ['content-length', 'content-range', 'accept-ranges'].forEach(h => {
+      const val = response.headers.get(h);
+      if (val) res.setHeader(h, val);
+    });
 
-    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Access-Control-Allow-Origin', '*');
     if (response.status === 206) res.status(206);
-
     response.body.pipe(res);
   } catch (e) {
     res.status(500).send('Proxy failed');
@@ -79,9 +102,8 @@ app.get('/api/proxy', async (req, res) => {
 // --- API ROUTES ---
 app.get('/api/home', async (req, res) => {
   try {
-    const data = await fetch(`${MOVIEBOX_API}/home`).then(r => r.json());
-    if (!data || !data.sections) return res.json({ sections: [] });
-    const sections = data.sections.map(s => ({
+    const data = await fetch(`${API_URL}/home`).then(r => r.json());
+    const sections = (data.sections || []).map(s => ({
       title: s.section,
       items: (s.items || []).map(it => ({
         id: it.subject_id,
@@ -90,7 +112,7 @@ app.get('/api/home', async (req, res) => {
         slug: it.slug,
         badge: it.badge || '',
         source: 'moviebox',
-        type: 'moviebox',
+        type: it.subject_type === 2 ? 'tv' : 'movie',
         backdrop: it.image_url || it.poster_url || ''
       }))
     }));
@@ -99,22 +121,32 @@ app.get('/api/home', async (req, res) => {
 });
 
 app.get('/api/movies', async (req, res) => {
-  const data = await fetch(`${MOVIEBOX_API}/movies?page=${req.query.page || 1}`).then(r => r.json());
+  const data = await fetch(`${API_URL}/movies?page=${req.query.page || 1}`).then(r => r.json());
   res.json({ items: data?.items || [] });
 });
 
 app.get('/api/tv-series', async (req, res) => {
-  const data = await fetch(`${MOVIEBOX_API}/tv-series?page=${req.query.page || 1}`).then(r => r.json());
+  const data = await fetch(`${API_URL}/tv-series?page=${req.query.page || 1}`).then(r => r.json());
   res.json({ items: data?.items || [] });
 });
 
 app.get('/api/animation', async (req, res) => {
-  const data = await fetch(`${MOVIEBOX_API}/animation?page=${req.query.page || 1}`).then(r => r.json());
+  const data = await fetch(`${API_URL}/animation?page=${req.query.page || 1}`).then(r => r.json());
+  res.json({ items: data?.items || [] });
+});
+
+app.get('/api/ranking', async (req, res) => {
+  const data = await fetch(`${API_URL}/ranking?page=${req.query.page || 1}`).then(r => r.json());
+  res.json({ items: data?.items || [] });
+});
+
+app.get('/api/top-imdb', async (req, res) => {
+  const data = await fetch(`${API_URL}/top-imdb?page=${req.query.page || 1}`).then(r => r.json());
   res.json({ items: data?.items || [] });
 });
 
 app.get('/api/search', async (req, res) => {
-  const data = await fetch(`${MOVIEBOX_API}/search?q=${encodeURIComponent(req.query.q || '')}`).then(r => r.json());
+  const data = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q || '')}`).then(r => r.json());
   res.json({ movies: (data?.items || []).map(it => ({
     id: it.subject_id,
     title: it.name,
@@ -122,77 +154,74 @@ app.get('/api/search', async (req, res) => {
     slug: it.slug,
     badge: it.badge || '',
     source: 'moviebox',
-    type: 'moviebox'
+    type: it.subject_type === 2 ? 'tv' : 'movie'
   })) });
 });
 
 app.get('/api/detail', async (req, res) => {
   const { slug } = req.query;
-  const data = await fetch(`${MOVIEBOX_API}/detail/${slug}`).then(r => r.json());
-  if (data?.data?.subject) {
-    const s = data.data.subject;
-    res.json({
-      id: s.subjectId,
-      title: s.title,
-      poster: s.cover?.url || '',
-      backdrop: s.stills?.url || s.cover?.url || '',
-      year: s.releaseDate?.substring(0, 4) || '',
-      rating: s.imdbRatingValue || '',
-      overview: s.description || '',
-      genres: s.genre ? s.genre.split(',').map(g => g.trim()) : [],
-      type: s.subjectType === 2 ? 'tv' : 'movie',
-      slug: s.detailPath,
-      source: 'moviebox',
-      resource: data.data.resource || {},
-      dubs: s.dubs || []
-    });
-  } else { res.status(404).send('Not found'); }
+  try {
+    const data = await fetch(`${API_URL}/detail/${slug}`).then(r => r.json());
+    if (data?.data?.subject) {
+      const s = data.data.subject;
+      res.json({
+        id: s.subjectId,
+        title: s.title,
+        poster: s.cover?.url || '',
+        backdrop: s.stills?.url || s.cover?.url || '',
+        year: s.releaseDate?.substring(0, 4) || '',
+        rating: s.imdbRatingValue || '',
+        overview: s.description || '',
+        genres: s.genre ? s.genre.split(',').map(g => g.trim()) : [],
+        type: s.subjectType === 2 ? 'tv' : 'movie',
+        slug: s.detailPath,
+        source: 'moviebox',
+        resource: data.data.resource || {},
+        dubs: s.dubs || []
+      });
+    } else { res.status(404).send('Not found'); }
+  } catch(e) { res.status(500).send(e.message); }
 });
 
 app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
-  const data = await fetch(`${MOVIEBOX_API}/api/stream/${subject_id}?detail_path=${slug}&se=${se || 0}&ep=${ep || 0}`).then(r => r.json());
+  // Use se=0, ep=0 for movies to match API preference
+  const s = se || 0;
+  const e = ep || 0;
 
-  if (data && data.has_resource) {
-    // Wrap all streams in our proxy to bypass CORS/Referer
-    if (data.sources) {
-      data.sources = data.sources.map(s => {
-        if (s.url) s.url = `/api/proxy?url=${encodeURIComponent(s.url)}`;
-        return s;
-      });
+  try {
+    const data = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(r => r.json());
+    if (data && data.has_resource) {
+      // Wrap main manifest/video URLs in proxy
+      if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `/api/proxy?url=${encodeURIComponent(src.url)}`; });
+      if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `/api/proxy?url=${encodeURIComponent(d.url)}`; });
+      if (data.hls) data.hls.forEach(h => { if (h.url) h.url = `/api/proxy?url=${encodeURIComponent(h.url)}`; });
+      return res.json(data);
     }
-    if (data.dash) {
-      data.dash = data.dash.map(d => {
-        if (d.url) d.url = `/api/proxy?url=${encodeURIComponent(d.url)}`;
-        return d;
-      });
-    }
-    if (data.hls) {
-      data.hls = data.hls.map(h => {
-        if (h.url) h.url = `/api/proxy?url=${encodeURIComponent(h.url)}`;
-        return h;
-      });
-    }
-  }
-  res.json(data);
+    res.status(404).json({ error: 'No stream' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/stream/:id/captions', async (req, res) => {
-  const data = await fetch(`${MOVIEBOX_API}/api/stream/${req.params.id}/captions?detail_path=${req.query.detail_path}&se=${req.query.se || 0}&ep=${req.query.ep || 0}`).then(r => r.json());
+  const data = await fetch(`${API_URL}/api/stream/${req.params.id}/captions?detail_path=${req.query.detail_path}&se=${req.query.se || 0}&ep=${req.query.ep || 0}`).then(r => r.json());
   res.json(data || { captions: [] });
 });
 
 app.get('/api/dash-manifest', async (req, res) => {
-  const r = await fetch(req.query.url, { headers: CDN_HEADERS }).then(r => r.text());
-  const resolutions = [];
-  const matches = r.matchAll(/<Representation[^>]+height="(\d+)"[^>]*>/g);
-  for (const m of matches) resolutions.push({ height: parseInt(m[1]), label: m[1]+'p' });
-  res.json({ resolutions: resolutions.sort((a,b) => b.height-a.height) });
+  try {
+    const r = await fetch(req.query.url, { headers: CDN_HEADERS }).then(r => r.text());
+    const resolutions = [];
+    const matches = r.matchAll(/<Representation[^>]+height="(\d+)"[^>]*>/g);
+    for (const m of matches) resolutions.push({ height: parseInt(m[1]), label: m[1]+'p' });
+    res.json({ resolutions: resolutions.sort((a,b) => b.height-a.height) });
+  } catch(e) { res.status(500).send(e.message); }
 });
 
 app.get('/api/cast', async (req, res) => {
-  const r = await fetch(`${TMDB_BASE}/${req.query.type || 'movie'}/${req.query.id}/credits?api_key=${TMDB_KEY}`).then(r => r.json());
-  res.json({ cast: (r.cast || []).slice(0, 15) });
+  try {
+    const r = await fetch(`${TMDB_BASE}/${req.query.type || 'movie'}/${req.query.id}/credits?api_key=${TMDB_KEY}`).then(r => r.json());
+    res.json({ cast: (r.cast || []).slice(0, 15) });
+  } catch(e) { res.json({ cast: [] }); }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
