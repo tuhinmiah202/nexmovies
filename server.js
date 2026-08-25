@@ -643,15 +643,27 @@ app.get('/api/genre/:name', async (req, res) => {
   });
 });
 
-// --- Moviebox-API helper ---
+// Simple in-memory cache
+const apiCache = new Map();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 async function movieboxFetch(endpoint) {
+  const cacheKey = endpoint;
+  const cached = apiCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return cached.data;
+  }
+
   try {
-    const res = await fetch(`${MOVIEBOX_API}${endpoint}`, { timeout: 10000 });
+    const res = await fetch(`${MOVIEBOX_API}${endpoint}`, { timeout: 15000 });
     if (!res.ok) throw new Error(`Moviebox-API ${res.status}`);
-    return await res.json();
+    const data = await res.json();
+    apiCache.set(cacheKey, { ts: Date.now(), data });
+    return data;
   } catch (e) {
     console.error(`Moviebox-API error: ${endpoint} - ${e.message}`);
-    return null;
+    // Return stale cache if error, or null
+    return cached ? cached.data : null;
   }
 }
 
@@ -1044,11 +1056,22 @@ app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
   if (!subject_id || !slug) return res.status(400).json({ error: 'Missing params' });
 
-  const season = se || 1;
-  const episode = ep || 1;
+  const season = se || 0; // default to 0 for movies
+  const episode = ep || 0;
 
   try {
-    const play = await mbFetchPlay(subject_id, slug, season, episode);
+    // Try Moviebox-API first (your new backend)
+    const data = await movieboxFetch(`/api/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
+    if (data && (data.sources || data.dash || data.hls)) {
+      return res.json(data);
+    }
+  } catch (e) {
+    console.error('API backend stream error:', e.message);
+  }
+
+  try {
+    // Fallback: Direct upstream resolution
+    const play = await mbFetchPlay(subject_id, slug, season || 1, episode || 1);
     const sources = (play.streams || []).map(s => ({
       resolution: `${s.resolutions}p`,
       format: s.format,
@@ -1057,41 +1080,22 @@ app.get('/api/stream', async (req, res) => {
       duration: s.duration,
       codec: s.codecName,
     }));
-    const hasResource = !!play.hasResource && (sources.length > 0 || (play.dash || []).length > 0 || (play.hls || []).length > 0);
-
-    if (hasResource) {
+    if (!!play.hasResource && (sources.length > 0 || (play.dash || []).length > 0 || (play.hls || []).length > 0)) {
       return res.json({
-        subject_id,
-        se: season,
-        ep: episode,
+        subject_id, se: season, ep: episode,
         has_resource: true,
         sources,
         hls: play.hls || [],
         dash: play.dash || [],
         free_episodes: play.freeNum,
         limited: play.limited || false,
-        note: null,
       });
     }
   } catch (e) {
-    console.error('Direct stream error:', e.message);
+    console.error('Direct fallback stream error:', e.message);
   }
 
-  // Fallback: Moviebox-API (Vercel) — currently IP-blocked upstream, but
-  // kept as a fallback in case direct resolution breaks.
-  const data = await movieboxFetch(`/api/stream/${subject_id}?detail_path=${slug}&se=${season}&ep=${episode}`);
-  if (!data) return res.status(502).json({ error: 'Stream fetch failed' });
-
-  // Return ALL streams (including VIP-locked with empty URLs) so client can show all resolutions
-  // Only filter out streams that have truly missing data
-  const allSources = (data.sources || []).filter(s => s.resolution);
-  const allDash = (data.dash || []).filter(d => d.format);
-
-  res.json({
-    ...data,
-    sources: allSources,
-    dash: allDash,
-  });
+  res.status(502).json({ error: 'Stream unavailable' });
 });
 
 // DASH Manifest Parser — extract all resolutions from .mpd
