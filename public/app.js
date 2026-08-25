@@ -1499,24 +1499,24 @@ async function triggerCardDownload(subjectId, slug, btn) {
       // No MP4 with URL — try DASH as fallback
       const dashSources = (data.dash || []).filter(d => d.url && d.url.length > 0);
       if (dashSources.length > 0) {
-        // Open DASH URL in new tab (user can use browser extension to download)
+        // Open DASH URL in new tab
         window.open(dashSources[0].url, '_blank');
-        alert('DASH stream opened in new tab. Use a browser DASH downloader extension to save the video.');
+        alert('DASH stream opened in new tab.');
       } else {
         alert('No downloadable source found for this content.');
       }
       return;
     }
 
-    // Pick the best MP4 quality (highest resolution)
+    // Pick the best MP4 quality
     mp4Sources.sort((a, b) => b.height - a.height);
     const best = mp4Sources[0];
     const title = (card ? card.querySelector('.card-title') : null)?.textContent || 'download';
-    const proxyUrl = `/api/download?url=${encodeURIComponent(best.url)}&title=${encodeURIComponent(title)}`;
+    const proxyUrl = best.url.includes('/api/proxy') ? best.url : `/api/proxy?url=${encodeURIComponent(best.url)}`;
 
     // Use hidden anchor to trigger download
     const a = document.createElement('a');
-    a.href = proxyUrl;
+    a.href = proxyUrl + `&title=${encodeURIComponent(title)}`;
     a.download = '';
     document.body.appendChild(a);
     a.click();
@@ -1624,7 +1624,7 @@ async function openDetail(source, type, id, slug) {
     // MP4 (H.264) qualities that are actually free (non-empty URL)
     const mp4Qualities = validSources.map(s => {
       const h = parseInt(s.resolutions) || parseInt(s.resolution) || 0;
-      return { height: h, label: (s.resolution || (h + 'p')), url: `/api/proxy?url=${encodeURIComponent(s.url)}`, kind: 'mp4' };
+      return { height: h, label: (s.resolution || (h + 'p')), url: s.url, kind: 'mp4' };
     }).filter(q => q.height > 0).sort((a, b) => b.height - a.height);
 
     let playerSrc = '';
@@ -1956,8 +1956,9 @@ async function openDetail(source, type, id, slug) {
           const url = opt.dataset.url;
           const title = opt.dataset.title || 'download';
           if (!url) return;
+          const proxyUrl = url.includes('/api/proxy') ? url : `/api/proxy?url=${encodeURIComponent(url)}`;
           const a = document.createElement('a');
-          a.href = `/api/download?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
+          a.href = proxyUrl + `&title=${encodeURIComponent(title)}`;
           a.download = '';
           document.body.appendChild(a);
           a.click();
