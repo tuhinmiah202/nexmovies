@@ -25,7 +25,7 @@ const CDN_HEADERS = {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- ADVANCED PROXY WITH MANIFEST REWRITING ---
+// --- PRODUCTION GRADE VIDEO PROXY ---
 app.get('/api/proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
@@ -48,53 +48,49 @@ app.get('/api/proxy', async (req, res) => {
     const isM3U8 = url.includes('.m3u8') || contentType.includes('mpegurl');
     const isMPD = url.includes('.mpd') || contentType.includes('dash+xml');
 
-    // Handle HLS (.m3u8) Rewriting
-    if (isM3U8) {
+    // Shared headers for all proxy responses
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+
+    if (isM3U8 || isMPD) {
       let text = await response.text();
       const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
-      const lines = text.split('\n');
-      const rewritten = lines.map(line => {
-        if (!line.trim() || line.startsWith('#')) return line;
-        const absolute = line.startsWith('http') ? line : new URL(line, baseUrl).href;
-        return `/api/proxy?url=${encodeURIComponent(absolute)}`;
-      }).join('\n');
+      const host = `${req.protocol === 'https' ? 'https' : 'https'}://${req.get('host')}`; // Force HTTPS if possible
 
-      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      return res.send(rewritten);
-    }
-
-    // Handle DASH (.mpd) Rewriting
-    if (isMPD) {
-      let text = await response.text();
-      const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
-
-      // Inject BaseURL to point to our proxy
-      // This forces the player to fetch all segments through our proxy
-      const proxyBase = `${req.protocol}://${req.get('host')}/api/proxy?url=${encodeURIComponent(baseUrl)}`;
-
-      if (text.includes('<BaseURL>')) {
-        text = text.replace(/<BaseURL>.*?<\/BaseURL>/g, `<BaseURL>${proxyBase}</BaseURL>`);
+      if (isM3U8) {
+        // Rewrite HLS manifest
+        const lines = text.split('\n');
+        text = lines.map(line => {
+          if (!line.trim() || line.startsWith('#')) return line;
+          const absolute = line.startsWith('http') ? line : new URL(line, baseUrl).href;
+          return `${host}/api/proxy?url=${encodeURIComponent(absolute)}`;
+        }).join('\n');
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
       } else {
-        text = text.replace('<Period', `<BaseURL>${proxyBase}</BaseURL><Period`);
+        // Rewrite DASH manifest using BaseURL injection
+        const proxyBase = `${host}/api/proxy?url=${encodeURIComponent(baseUrl)}`;
+        if (text.includes('<BaseURL>')) {
+          text = text.replace(/<BaseURL>.*?<\/BaseURL>/g, `<BaseURL>${proxyBase}</BaseURL>`);
+        } else {
+          text = text.replace('<Period', `<BaseURL>${proxyBase}</BaseURL><Period`);
+        }
+        res.setHeader('Content-Type', 'application/dash+xml');
       }
-
-      res.setHeader('Content-Type', 'application/dash+xml');
-      res.setHeader('Access-Control-Allow-Origin', '*');
       return res.send(text);
     }
 
-    // Regular video/binary stream
+    // Binary/Video stream
     if (contentType) res.setHeader('Content-Type', contentType);
     ['content-length', 'content-range', 'accept-ranges'].forEach(h => {
       const val = response.headers.get(h);
       if (val) res.setHeader(h, val);
     });
 
-    res.setHeader('Access-Control-Allow-Origin', '*');
     if (response.status === 206) res.status(206);
     response.body.pipe(res);
   } catch (e) {
+    console.error('Proxy error:', e.message);
     res.status(500).send('Proxy failed');
   }
 });
@@ -132,16 +128,6 @@ app.get('/api/tv-series', async (req, res) => {
 
 app.get('/api/animation', async (req, res) => {
   const data = await fetch(`${API_URL}/animation?page=${req.query.page || 1}`).then(r => r.json());
-  res.json({ items: data?.items || [] });
-});
-
-app.get('/api/ranking', async (req, res) => {
-  const data = await fetch(`${API_URL}/ranking?page=${req.query.page || 1}`).then(r => r.json());
-  res.json({ items: data?.items || [] });
-});
-
-app.get('/api/top-imdb', async (req, res) => {
-  const data = await fetch(`${API_URL}/top-imdb?page=${req.query.page || 1}`).then(r => r.json());
   res.json({ items: data?.items || [] });
 });
 
@@ -185,17 +171,16 @@ app.get('/api/detail', async (req, res) => {
 
 app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
-  // Use se=0, ep=0 for movies to match API preference
-  const s = se || 0;
-  const e = ep || 0;
+  const s = parseInt(se) || 0;
+  const e = parseInt(ep) || 0;
 
   try {
     const data = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(r => r.json());
     if (data && data.has_resource) {
-      // Wrap main manifest/video URLs in proxy
-      if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `/api/proxy?url=${encodeURIComponent(src.url)}`; });
-      if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `/api/proxy?url=${encodeURIComponent(d.url)}`; });
-      if (data.hls) data.hls.forEach(h => { if (h.url) h.url = `/api/proxy?url=${encodeURIComponent(h.url)}`; });
+      const host = `${req.protocol}://${req.get('host')}`;
+      if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
+      if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
+      if (data.hls) data.hls.forEach(h => { if (h.url) h.url = `${host}/api/proxy?url=${encodeURIComponent(h.url)}`; });
       return res.json(data);
     }
     res.status(404).json({ error: 'No stream' });
@@ -203,15 +188,18 @@ app.get('/api/stream', async (req, res) => {
 });
 
 app.get('/api/stream/:id/captions', async (req, res) => {
-  const data = await fetch(`${API_URL}/api/stream/${req.params.id}/captions?detail_path=${req.query.detail_path}&se=${req.query.se || 0}&ep=${req.query.ep || 0}`).then(r => r.json());
-  res.json(data || { captions: [] });
+  try {
+    const data = await fetch(`${API_URL}/api/stream/${req.params.id}/captions?detail_path=${req.query.detail_path}&se=${req.query.se || 0}&ep=${req.query.ep || 0}`).then(r => r.json());
+    res.json(data || { captions: [] });
+  } catch(e) { res.json({ captions: [] }); }
 });
 
 app.get('/api/dash-manifest', async (req, res) => {
   try {
-    const r = await fetch(req.query.url, { headers: CDN_HEADERS }).then(r => r.text());
+    const response = await fetch(req.query.url, { headers: CDN_HEADERS });
+    const text = await response.text();
     const resolutions = [];
-    const matches = r.matchAll(/<Representation[^>]+height="(\d+)"[^>]*>/g);
+    const matches = text.matchAll(/<Representation[^>]+height="(\d+)"[^>]*>/g);
     for (const m of matches) resolutions.push({ height: parseInt(m[1]), label: m[1]+'p' });
     res.json({ resolutions: resolutions.sort((a,b) => b.height-a.height) });
   } catch(e) { res.status(500).send(e.message); }
