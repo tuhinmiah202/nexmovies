@@ -8,7 +8,7 @@ const { spawn } = require('child_process');
 const https = require('https');
 
 const app = express();
-const PORT = process.env.PORT || 8080; // Fly.io default port
+const PORT = process.env.PORT || 8080;
 const API_URL = 'https://moviebox-api-steel.vercel.app';
 
 const TMDB_KEY = process.env.TMDB_API_KEY || '2dca580c2a14b55200e784d157207b4d';
@@ -49,7 +49,6 @@ app.get('/api/proxy', async (req, res) => {
     const isMPD = url.includes('.mpd') || contentType.includes('dash+xml');
 
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
 
     if (isM3U8 || isMPD) {
@@ -90,93 +89,38 @@ app.get('/api/proxy', async (req, res) => {
   }
 });
 
-// --- API ROUTES ---
+// --- API ROUTES (PURELY FROM YOUR VERCEL API) ---
 app.get('/api/home', async (req, res) => {
   try {
     const data = await fetch(`${API_URL}/home`).then(r => r.json());
-    if (!data || !data.sections) return res.json({ sections: [] });
-    const sections = data.sections.map(s => ({
+    res.json({ sections: (data.sections || []).map(s => ({
       title: s.section,
       items: (s.items || []).map(it => ({
-        id: it.subject_id,
-        title: it.name,
-        poster: it.poster_url || '',
-        slug: it.slug,
-        badge: it.badge || '',
-        source: 'moviebox',
-        type: it.subject_type === 2 ? 'tv' : 'movie',
-        backdrop: it.image_url || it.poster_url || ''
+        id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, badge: it.badge, source: 'moviebox', type: it.subject_type === 2 ? 'tv' : 'movie', backdrop: it.image_url || it.poster_url
       }))
-    }));
-    res.json({ sections });
+    })) });
   } catch (e) { res.json({ sections: [] }); }
 });
 
-app.get('/api/movies', async (req, res) => {
-  try {
-    const data = await fetch(`${API_URL}/movies?page=${req.query.page || 1}`).then(r => r.json());
-    res.json({ items: data?.items || [] });
-  } catch(e) { res.json({ items: [] }); }
-});
-
-app.get('/api/tv-series', async (req, res) => {
-  try {
-    const data = await fetch(`${API_URL}/tv-series?page=${req.query.page || 1}`).then(r => r.json());
-    res.json({ items: data?.items || [] });
-  } catch(e) { res.json({ items: [] }); }
-});
-
-app.get('/api/animation', async (req, res) => {
-  try {
-    const data = await fetch(`${API_URL}/animation?page=${req.query.page || 1}`).then(r => r.json());
-    res.json({ items: data?.items || [] });
-  } catch(e) { res.json({ items: [] }); }
-});
-
-app.get('/api/search', async (req, res) => {
-  try {
-    const data = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q || '')}`).then(r => r.json());
-    res.json({ movies: (data?.items || []).map(it => ({
-      id: it.subject_id,
-      title: it.name,
-      poster: it.poster_url || '',
-      slug: it.slug,
-      badge: it.badge || '',
-      source: 'moviebox',
-      type: it.subject_type === 2 ? 'tv' : 'movie'
-    })) });
-  } catch(e) { res.json({ movies: [] }); }
-});
-
 app.get('/api/detail', async (req, res) => {
-  const { slug } = req.query;
   try {
-    const data = await fetch(`${API_URL}/detail/${slug}`).then(r => r.json());
+    const data = await fetch(`${API_URL}/detail/${req.query.slug}`).then(r => r.json());
     if (data?.data?.subject) {
       const s = data.data.subject;
       res.json({
-        id: s.subjectId,
-        title: s.title,
-        poster: s.cover?.url || '',
-        backdrop: s.stills?.url || s.cover?.url || '',
-        year: s.releaseDate?.substring(0, 4) || '',
-        rating: s.imdbRatingValue || '',
-        overview: s.description || '',
-        genres: s.genre ? s.genre.split(',').map(g => g.trim()) : [],
-        type: s.subjectType === 2 ? 'tv' : 'movie',
-        slug: s.detailPath,
-        source: 'moviebox',
-        resource: data.data.resource || {},
-        dubs: s.dubs || []
+        id: s.subjectId, title: s.title, poster: s.cover?.url, backdrop: s.stills?.url || s.cover?.url,
+        year: s.releaseDate?.substring(0,4), rating: s.imdbRatingValue, overview: s.description,
+        genres: s.genre ? s.genre.split(',').map(g=>g.trim()) : [], type: s.subjectType === 2 ? 'tv' : 'movie',
+        slug: s.detailPath, source: 'moviebox', resource: data.data.resource || {}, dubs: s.dubs || []
       });
     } else { res.status(404).send('Not found'); }
-  } catch(e) { res.status(500).send(e.message); }
+  } catch(e) { res.status(500).send('Error'); }
 });
 
 app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
-  const s = parseInt(se) || 0;
-  const e = parseInt(ep) || 0;
+  const s = se || 0;
+  const e = ep || 0;
   try {
     const data = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(r => r.json());
     if (data && data.has_resource) {
@@ -187,7 +131,7 @@ app.get('/api/stream', async (req, res) => {
       return res.json(data);
     }
     res.status(404).json({ error: 'No stream' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
 app.get('/api/stream/:id/captions', async (req, res) => {
@@ -197,15 +141,11 @@ app.get('/api/stream/:id/captions', async (req, res) => {
   } catch(e) { res.json({ captions: [] }); }
 });
 
-app.get('/api/dash-manifest', async (req, res) => {
+app.get('/api/search', async (req, res) => {
   try {
-    const response = await fetch(req.query.url, { headers: CDN_HEADERS });
-    const text = await response.text();
-    const resolutions = [];
-    const matches = text.matchAll(/<Representation[^>]+height="(\d+)"[^>]*>/g);
-    for (const m of matches) resolutions.push({ height: parseInt(m[1]), label: m[1]+'p' });
-    res.json({ resolutions: resolutions.sort((a,b) => b.height-a.height) });
-  } catch(e) { res.status(500).send(e.message); }
+    const data = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q)}`).then(r => r.json());
+    res.json({ movies: (data?.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'moviebox' })) });
+  } catch(e) { res.json({ movies: [] }); }
 });
 
 app.get('/api/cast', async (req, res) => {
@@ -216,5 +156,4 @@ app.get('/api/cast', async (req, res) => {
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-
-app.listen(PORT, '0.0.0.0', () => console.log(`🎬 Nexmovies running on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Nexmovies Pure Backend Ready on ${PORT}`));
