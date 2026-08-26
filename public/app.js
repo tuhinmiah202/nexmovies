@@ -1458,7 +1458,7 @@ function attachCardListeners() {
       const source = card.dataset.source;
       const id = card.dataset.id;
       const slug = card.dataset.slug;
-      if (source !== 'moviebox' || !id || !slug) {
+      if (!id || !slug) {
         alert('Download available for Nexmovies content only.');
         return;
       }
@@ -1579,7 +1579,8 @@ async function openDetail(source, type, id, slug) {
     // Get stream
     let streamData = null;
     let captionData = null;
-    if (source === 'moviebox' && slug && id) {
+    // Support both old 'moviebox' and new 'nexmovies' source labels
+    if ((source === 'moviebox' || source === 'nexmovies') && slug && id) {
       const isMovie = detail.type === 'movie';
       const se = isMovie ? 0 : 1;
       const ep = isMovie ? 0 : 1;
@@ -2623,7 +2624,7 @@ function loadEpisode(btn, source, id, getSeason, setEp) {
   const ep = parseInt(btn.dataset.ep);
   setEp(ep);
 
-  if (source === 'moviebox' && currentDetail?.slug && id) {
+  if ((source === 'moviebox' || source === 'nexmovies') && currentDetail?.slug && id) {
     const season = getSeason();
     const slug = currentDetail.slug;
     stopCurrentTranscode();
