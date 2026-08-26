@@ -1,7 +1,6 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const path = require('path');
-const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 7860;
@@ -9,44 +8,16 @@ const API_URL = 'https://moviebox-api-steel.vercel.app';
 
 const CDN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Accept': 'application/json, text/plain, */*',
+  'Accept': '*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
   'Origin': 'https://moviebox.ph',
-  'Referer': 'https://moviebox.ph/',
-  'X-Client-Info': '{"timezone":"Asia/Dhaka"}'
+  'Referer': 'https://moviebox.ph/'
 };
-
-// --- MOVIEBOX GUEST SESSION RESOLVER ---
-let mbSession = { ts: 0, token: null };
-async function getMbToken() {
-  if (mbSession.token && Date.now() - mbSession.ts < 10 * 60 * 1000) return mbSession.token;
-  try {
-    const res = await fetch('https://h5-api.aoneroom.com/wefeed-h5api-bff/media-player/get-domain', { headers: CDN_HEADERS });
-    const xUser = res.headers.get('x-user');
-    if (xUser) {
-      const token = JSON.parse(xUser).token;
-      mbSession = { ts: Date.now(), token };
-      return token;
-    }
-  } catch (e) {}
-  return null;
-}
-
-async function resolveMbStream(subjectId, slug, se, ep) {
-  try {
-    const token = await getMbToken();
-    const url = `https://netfilm.world/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${encodeURIComponent(slug)}`;
-    const headers = { ...CDN_HEADERS };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(url, { headers, timeout: 15000 });
-    const json = await res.json();
-    return json.data || null;
-  } catch (e) { return null; }
-}
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- PRODUCTION GRADE PROXY ---
+// --- STABLE VIDEO PROXY ---
 app.get('/api/proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
@@ -56,45 +27,27 @@ app.get('/api/proxy', async (req, res) => {
     if (req.headers.range) proxyHeaders['Range'] = req.headers.range;
 
     const response = await fetch(url, { headers: proxyHeaders, redirect: 'follow', timeout: 30000 });
-    const contentType = response.headers.get('content-type') || '';
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', '*');
 
-    if (url.includes('.mpd') || url.includes('.m3u8') || contentType.includes('dash+xml') || contentType.includes('mpegurl')) {
-      let text = await response.text();
-      const host = `${req.protocol}://${req.get('host')}`;
-      const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
-
-      if (url.includes('.mpd') || contentType.includes('dash+xml')) {
-        const proxyBase = `${host}/api/proxy?url=${encodeURIComponent(baseUrl)}`;
-        if (text.includes('<BaseURL>')) {
-          text = text.replace(/<BaseURL>.*?<\/BaseURL>/g, `<BaseURL>${proxyBase}</BaseURL>`);
-        } else {
-          text = text.replace('<Period', `<BaseURL>${proxyBase}</BaseURL><Period`);
-        }
-      } else {
-        const lines = text.split('\n');
-        text = lines.map(l => (!l.trim() || l.startsWith('#')) ? l : `${host}/api/proxy?url=${encodeURIComponent(l.startsWith('http') ? l : new URL(l, baseUrl).href)}`).join('\n');
-      }
-      return res.send(text);
-    }
-
-    if (contentType) res.setHeader('Content-Type', contentType);
-    ['content-length', 'content-range', 'accept-ranges'].forEach(h => {
-      if (response.headers.get(h)) res.setHeader(h, response.headers.get(h));
-    });
+    if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
+    if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
+    if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
+    res.setHeader('Accept-Ranges', 'bytes');
 
     if (response.status === 206) res.status(206);
     response.body.pipe(res);
-  } catch (e) { res.status(500).send('Proxy error'); }
+  } catch (e) {
+    res.status(500).send('Proxy failed');
+  }
 });
 
 // --- API ROUTES ---
 app.get('/api/home', async (req, res) => {
   try {
-    const data = await fetch(`${API_URL}/home`).then(r => r.json());
-    res.json({ sections: (data.sections || []).map(s => ({
+    const r = await fetch(`${API_URL}/home`).then(res => res.json());
+    res.json({ sections: (r.sections || []).map(s => ({
       title: s.section,
       items: (s.items || []).map(it => ({
         id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, badge: it.badge, source: 'moviebox', type: it.subject_type === 2 ? 'tv' : 'movie', backdrop: it.image_url || it.poster_url
@@ -105,48 +58,48 @@ app.get('/api/home', async (req, res) => {
 
 app.get('/api/detail', async (req, res) => {
   try {
-    const data = await fetch(`${API_URL}/detail/${req.query.slug}`).then(r => r.json());
-    const s = data?.data?.subject;
+    const r = await fetch(`${API_URL}/detail/${req.query.slug}`).then(res => res.json());
+    const s = r?.data?.subject;
     if (!s) return res.status(404).send('Not found');
     res.json({
       id: s.subjectId, title: s.title, poster: s.cover?.url, backdrop: s.stills?.url || s.cover?.url,
       year: s.releaseDate?.substring(0,4), rating: s.imdbRatingValue, overview: s.description,
       genres: s.genre ? s.genre.split(',').map(g=>g.trim()) : [], type: s.subjectType === 2 ? 'tv' : 'movie',
-      slug: s.detailPath, source: 'moviebox', resource: data.data.resource || {}, dubs: s.dubs || []
+      slug: s.detailPath, source: 'moviebox', resource: r.data.resource || {}, dubs: s.dubs || []
     });
   } catch (e) { res.status(500).send('Error'); }
 });
 
 app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
-  // CRITICAL: Handle se=0 and ep=0 correctly for movies
-  const s = se !== undefined ? parseInt(se) : 0;
-  const e = ep !== undefined ? parseInt(ep) : 0;
-
-  try {
-    const play = await resolveMbStream(subject_id, slug, s, e);
-    if (play && (play.streams || play.dash)) {
-      const host = `${req.protocol}://${req.get('host')}`;
-      const sources = (play.streams || []).map(src => ({ ...src, url: `${host}/api/proxy?url=${encodeURIComponent(src.url)}`, resolution: src.resolutions + 'p' }));
-      const dash = (play.dash || []).map(d => ({ ...d, url: `${host}/api/proxy?url=${encodeURIComponent(d.url)}` }));
-      const hls = (play.hls || []).map(h => ({ ...h, url: `${host}/api/proxy?url=${encodeURIComponent(h.url)}` }));
-      return res.json({ subject_id, se: s, ep: e, has_resource: true, sources, dash, hls, free_episodes: play.freeNum });
-    }
-  } catch (err) {}
-
-  // Fallback to Vercel API
+  const s = se !== undefined ? se : 0;
+  const e = ep !== undefined ? ep : 0;
   try {
     const r = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(res => res.json());
-    res.json(r);
-  } catch (e) { res.status(502).json({ error: 'Failed' }); }
+    if (r && r.has_resource) {
+      const host = `${req.protocol}://${req.get('host')}`;
+      if (r.sources) r.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
+      if (r.dash) r.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
+      if (r.hls) r.hls.forEach(h => { if (h.url) h.url = `${host}/api/proxy?url=${encodeURIComponent(h.url)}`; });
+      return res.json(r);
+    }
+    res.status(404).json({ error: 'No stream' });
+  } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+app.get('/api/stream/:id/captions', async (req, res) => {
+  try {
+    const r = await fetch(`${API_URL}/api/stream/${req.params.id}/captions?detail_path=${req.query.detail_path}&se=${req.query.se || 0}&ep=${req.query.ep || 0}`).then(res => res.json());
+    res.json(r || { captions: [] });
+  } catch(e) { res.json({ captions: [] }); }
 });
 
 app.get('/api/search', async (req, res) => {
   try {
-    const data = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q)}`).then(r => r.json());
-    res.json({ movies: (data?.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'moviebox' })) });
+    const r = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q)}`).then(res => res.json());
+    res.json({ movies: (r.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'moviebox' })) });
   } catch(e) { res.json({ movies: [] }); }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Nexmovies Engine Ready on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on ${PORT}`));
