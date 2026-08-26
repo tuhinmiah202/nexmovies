@@ -1,42 +1,19 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const path = require('path');
-const https = require('https');
 
 const app = express();
-// Priority: Environment Port > fly.toml Port > Default
-const PORT = process.env.PORT || 7860;
+// Fly.io usually expects 8080 or uses the PORT env variable
+const PORT = process.env.PORT || 8080;
 const API_URL = 'https://moviebox-api-steel.vercel.app';
 
 const CDN_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'application/json, text/plain, */*',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Accept': '*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
   'Origin': 'https://moviebox.ph',
-  'Referer': 'https://moviebox.ph/',
-  'X-Client-Info': '{"timezone":"Asia/Dhaka"}'
+  'Referer': 'https://moviebox.ph/'
 };
-
-// --- DIRECT MB RESOLVER (Fly.io IP is usually unblocked) ---
-async function mbGetPlay(subjectId, slug, se, ep) {
-  try {
-    // Try multiple known gateways used by similar sites
-    const gateways = [
-      `https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${encodeURIComponent(slug)}`,
-      `https://netfilm.world/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${encodeURIComponent(slug)}`
-    ];
-
-    for (const url of gateways) {
-      try {
-        const res = await fetch(url, { headers: CDN_HEADERS, timeout: 10000 });
-        if (res.ok) {
-          const json = await res.json();
-          if (json.data && (json.data.streams || json.data.dash)) return json.data;
-        }
-      } catch (e) {}
-    }
-  } catch (e) {}
-  return null;
-}
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
@@ -45,13 +22,16 @@ app.use(express.json());
 app.get('/api/proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
+
   try {
     const proxyHeaders = { ...CDN_HEADERS };
     if (req.headers.range) proxyHeaders['Range'] = req.headers.range;
+
     const response = await fetch(url, { headers: proxyHeaders, redirect: 'follow', timeout: 30000 });
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', '*');
+
     if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
     if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
@@ -59,7 +39,9 @@ app.get('/api/proxy', async (req, res) => {
 
     if (response.status === 206) res.status(206);
     response.body.pipe(res);
-  } catch (e) { res.status(500).send('Proxy error'); }
+  } catch (e) {
+    res.status(500).send('Proxy failed');
+  }
 });
 
 // --- API ROUTES ---
@@ -91,14 +73,17 @@ app.get('/api/detail', async (req, res) => {
 
 app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
-  // Handle parameters for movies (0) vs TV (1)
   const s = se !== undefined ? parseInt(se) : 0;
   const e = ep !== undefined ? parseInt(ep) : 0;
 
   try {
-    // 1. Try Direct Resolver on Fly.io (Most Stable)
-    const play = await mbGetPlay(subject_id, slug, s || 1, e || 1);
-    if (play && (play.streams || play.dash)) {
+    // 1. Try Resolving directly on Fly.io using its IP
+    const directUrl = `https://netfilm.world/wefeed-h5api-bff/subject/play?subjectId=${subject_id}&se=${s || 1}&ep=${e || 1}&detailPath=${encodeURIComponent(slug)}`;
+    const directRes = await fetch(directUrl, { headers: CDN_HEADERS, timeout: 10000 });
+    const directData = await directRes.json();
+
+    if (directData && directData.data && (directData.data.streams || directData.data.dash)) {
+      const play = directData.data;
       const host = `${req.protocol}://${req.get('host')}`;
       const sources = (play.streams || []).map(src => ({ ...src, url: `${host}/api/proxy?url=${encodeURIComponent(src.url)}`, resolution: src.resolutions + 'p' }));
       const dash = (play.dash || []).map(d => ({ ...d, url: `${host}/api/proxy?url=${encodeURIComponent(d.url)}` }));
@@ -106,11 +91,19 @@ app.get('/api/stream', async (req, res) => {
     }
   } catch (err) {}
 
-  // 2. Fallback to your Vercel API
+  // 2. Fallback to Vercel API
   try {
-    const r = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(res => res.json());
-    res.json(r);
-  } catch (e) { res.status(502).json({ error: 'Failed' }); }
+    const response = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`);
+    const data = await response.json();
+    if (data && data.has_resource) {
+       const host = `${req.protocol}://${req.get('host')}`;
+       if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
+       if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
+       return res.json(data);
+    }
+  } catch (err) {}
+
+  res.status(404).json({ error: 'Stream not found' });
 });
 
 app.get('/api/search', async (req, res) => {
@@ -122,5 +115,4 @@ app.get('/api/search', async (req, res) => {
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-// Listen on all network interfaces
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Nexmovies Engine listening on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Nexmovies Engine listening on ${PORT}`));
