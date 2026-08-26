@@ -8,7 +8,7 @@ const { spawn } = require('child_process');
 const https = require('https');
 
 const app = express();
-const PORT = process.env.PORT || 7860;
+const PORT = process.env.PORT || 8080; // Fly.io default port
 const API_URL = 'https://moviebox-api-steel.vercel.app';
 
 const TMDB_KEY = process.env.TMDB_API_KEY || '2dca580c2a14b55200e784d157207b4d';
@@ -34,32 +34,30 @@ app.get('/api/proxy', async (req, res) => {
     const proxyHeaders = { ...CDN_HEADERS };
     if (req.headers.range) proxyHeaders['Range'] = req.headers.range;
 
-    const response = await fetch(url, {
+    const upstreamResponse = await fetch(url, {
       headers: proxyHeaders,
       redirect: 'follow',
       timeout: 30000,
     });
 
-    if (!response.ok && response.status !== 206) {
-      return res.status(response.status).send(`Upstream error: ${response.status}`);
+    if (!upstreamResponse.ok && upstreamResponse.status !== 206) {
+      return res.status(upstreamResponse.status).send(`Upstream error: ${upstreamResponse.status}`);
     }
 
-    const contentType = response.headers.get('content-type') || '';
+    const contentType = upstreamResponse.headers.get('content-type') || '';
     const isM3U8 = url.includes('.m3u8') || contentType.includes('mpegurl');
     const isMPD = url.includes('.mpd') || contentType.includes('dash+xml');
 
-    // Shared headers for all proxy responses
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
 
     if (isM3U8 || isMPD) {
-      let text = await response.text();
+      let text = await upstreamResponse.text();
       const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
-      const host = `${req.protocol === 'https' ? 'https' : 'https'}://${req.get('host')}`; // Force HTTPS if possible
+      const host = `${req.protocol}://${req.get('host')}`;
 
       if (isM3U8) {
-        // Rewrite HLS manifest
         const lines = text.split('\n');
         text = lines.map(line => {
           if (!line.trim() || line.startsWith('#')) return line;
@@ -68,7 +66,6 @@ app.get('/api/proxy', async (req, res) => {
         }).join('\n');
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
       } else {
-        // Rewrite DASH manifest using BaseURL injection
         const proxyBase = `${host}/api/proxy?url=${encodeURIComponent(baseUrl)}`;
         if (text.includes('<BaseURL>')) {
           text = text.replace(/<BaseURL>.*?<\/BaseURL>/g, `<BaseURL>${proxyBase}</BaseURL>`);
@@ -80,17 +77,15 @@ app.get('/api/proxy', async (req, res) => {
       return res.send(text);
     }
 
-    // Binary/Video stream
     if (contentType) res.setHeader('Content-Type', contentType);
     ['content-length', 'content-range', 'accept-ranges'].forEach(h => {
-      const val = response.headers.get(h);
+      const val = upstreamResponse.headers.get(h);
       if (val) res.setHeader(h, val);
     });
 
-    if (response.status === 206) res.status(206);
-    response.body.pipe(res);
+    if (upstreamResponse.status === 206) res.status(206);
+    upstreamResponse.body.pipe(res);
   } catch (e) {
-    console.error('Proxy error:', e.message);
     res.status(500).send('Proxy failed');
   }
 });
@@ -99,7 +94,8 @@ app.get('/api/proxy', async (req, res) => {
 app.get('/api/home', async (req, res) => {
   try {
     const data = await fetch(`${API_URL}/home`).then(r => r.json());
-    const sections = (data.sections || []).map(s => ({
+    if (!data || !data.sections) return res.json({ sections: [] });
+    const sections = data.sections.map(s => ({
       title: s.section,
       items: (s.items || []).map(it => ({
         id: it.subject_id,
@@ -117,31 +113,39 @@ app.get('/api/home', async (req, res) => {
 });
 
 app.get('/api/movies', async (req, res) => {
-  const data = await fetch(`${API_URL}/movies?page=${req.query.page || 1}`).then(r => r.json());
-  res.json({ items: data?.items || [] });
+  try {
+    const data = await fetch(`${API_URL}/movies?page=${req.query.page || 1}`).then(r => r.json());
+    res.json({ items: data?.items || [] });
+  } catch(e) { res.json({ items: [] }); }
 });
 
 app.get('/api/tv-series', async (req, res) => {
-  const data = await fetch(`${API_URL}/tv-series?page=${req.query.page || 1}`).then(r => r.json());
-  res.json({ items: data?.items || [] });
+  try {
+    const data = await fetch(`${API_URL}/tv-series?page=${req.query.page || 1}`).then(r => r.json());
+    res.json({ items: data?.items || [] });
+  } catch(e) { res.json({ items: [] }); }
 });
 
 app.get('/api/animation', async (req, res) => {
-  const data = await fetch(`${API_URL}/animation?page=${req.query.page || 1}`).then(r => r.json());
-  res.json({ items: data?.items || [] });
+  try {
+    const data = await fetch(`${API_URL}/animation?page=${req.query.page || 1}`).then(r => r.json());
+    res.json({ items: data?.items || [] });
+  } catch(e) { res.json({ items: [] }); }
 });
 
 app.get('/api/search', async (req, res) => {
-  const data = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q || '')}`).then(r => r.json());
-  res.json({ movies: (data?.items || []).map(it => ({
-    id: it.subject_id,
-    title: it.name,
-    poster: it.poster_url || '',
-    slug: it.slug,
-    badge: it.badge || '',
-    source: 'moviebox',
-    type: it.subject_type === 2 ? 'tv' : 'movie'
-  })) });
+  try {
+    const data = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q || '')}`).then(r => r.json());
+    res.json({ movies: (data?.items || []).map(it => ({
+      id: it.subject_id,
+      title: it.name,
+      poster: it.poster_url || '',
+      slug: it.slug,
+      badge: it.badge || '',
+      source: 'moviebox',
+      type: it.subject_type === 2 ? 'tv' : 'movie'
+    })) });
+  } catch(e) { res.json({ movies: [] }); }
 });
 
 app.get('/api/detail', async (req, res) => {
@@ -173,7 +177,6 @@ app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
   const s = parseInt(se) || 0;
   const e = parseInt(ep) || 0;
-
   try {
     const data = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(r => r.json());
     if (data && data.has_resource) {
