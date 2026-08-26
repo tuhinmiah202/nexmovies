@@ -1,6 +1,7 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const path = require('path');
+const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 7860;
@@ -14,22 +15,22 @@ const CDN_HEADERS = {
   'X-Client-Info': '{"timezone":"Asia/Dhaka"}'
 };
 
-// --- DIRECT RESOLVER (Proven to work on Fly.io) ---
-async function mbFetchPlay(subjectId, slug, se, ep) {
+// --- DIRECT MB RESOLVER (Fly.io IP is not blocked) ---
+async function mbGetPlay(subjectId, slug, se, ep) {
   try {
     const url = `https://netfilm.world/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${encodeURIComponent(slug)}`;
     const res = await fetch(url, { headers: CDN_HEADERS, timeout: 15000 });
     const json = await res.json();
-    return json.data || {};
-  } catch (e) { return {}; }
+    return json.data || null;
+  } catch (e) { return null; }
 }
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- STABLE VIDEO PROXY ---
+// --- PRODUCTION GRADE PROXY ---
 app.get('/api/proxy', async (req, res) => {
-  const { url, title } = req.query;
+  const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
   try {
     const proxyHeaders = { ...CDN_HEADERS };
@@ -42,23 +43,16 @@ app.get('/api/proxy', async (req, res) => {
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
     if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
     res.setHeader('Accept-Ranges', 'bytes');
-
-    // Handle download naming
-    if (title) {
-        const filename = title.replace(/[^\w\s\-]/g, '').replace(/\s+/g, '_') + '.mp4';
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    }
-
     if (response.status === 206) res.status(206);
     response.body.pipe(res);
-  } catch (e) { res.status(500).send('Proxy failed'); }
+  } catch (e) { res.status(500).send('Proxy error'); }
 });
 
 // --- API ROUTES ---
 app.get('/api/home', async (req, res) => {
   try {
-    const r = await fetch(`${API_URL}/home`).then(res => res.json());
-    res.json({ sections: (r.sections || []).map(s => ({
+    const data = await fetch(`${API_URL}/home`).then(r => r.json());
+    res.json({ sections: (data.sections || []).map(s => ({
       title: s.section,
       items: (s.items || []).map(it => ({
         id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, badge: it.badge, source: 'nexmovies', type: it.subject_type === 2 ? 'tv' : 'movie', backdrop: it.image_url || it.poster_url
@@ -69,56 +63,39 @@ app.get('/api/home', async (req, res) => {
 
 app.get('/api/detail', async (req, res) => {
   try {
-    const r = await fetch(`${API_URL}/detail/${req.query.slug}`).then(res => res.json());
-    const s = r?.data?.subject;
+    const data = await fetch(`${API_URL}/detail/${req.query.slug}`).then(r => r.json());
+    const s = data?.data?.subject;
     if (!s) return res.status(404).send('Not found');
     res.json({
       id: s.subjectId, title: s.title, poster: s.cover?.url, backdrop: s.stills?.url || s.cover?.url,
       year: s.releaseDate?.substring(0,4), rating: s.imdbRatingValue, overview: s.description,
       genres: s.genre ? s.genre.split(',').map(g=>g.trim()) : [], type: s.subjectType === 2 ? 'tv' : 'movie',
-      slug: s.detailPath, source: 'nexmovies', resource: r.data.resource || {}, dubs: s.dubs || []
+      slug: s.detailPath, source: 'nexmovies', resource: data.data.resource || {}, dubs: s.dubs || []
     });
   } catch (e) { res.status(500).send('Error'); }
 });
 
 app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
-  const s = parseInt(se) || 0;
-  const e = parseInt(ep) || 0;
+  const s = se !== undefined ? parseInt(se) : 0;
+  const e = ep !== undefined ? parseInt(ep) : 0;
 
   try {
-    // 1. Try Vercel API First
-    let data = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(res => res.json());
-
-    // 2. If Vercel Fails (Blocked), Use Direct Fly.io Resolver
-    if (!data || !data.has_resource) {
-       const play = await mbFetchPlay(subject_id, slug, s || 1, e || 1);
-       if (play && (play.streams || play.dash)) {
-          data = {
-            subject_id, se: s, ep: e, has_resource: true,
-            sources: (play.streams || []).map(src => ({ ...src, resolution: src.resolutions + 'p' })),
-            dash: play.dash || [],
-            hls: play.hls || []
-          };
-       }
+    // 1. Resolve directly on Fly.io (bypass Vercel Block)
+    const play = await mbGetPlay(subject_id, slug, s, e);
+    if (play && (play.streams || play.dash)) {
+      const host = `${req.get('x-forwarded-proto') || 'https'}://${req.get('host')}`;
+      const sources = (play.streams || []).map(src => ({ ...src, url: `${host}/api/proxy?url=${encodeURIComponent(src.url)}`, resolution: src.resolutions + 'p' }));
+      const dash = (play.dash || []).map(d => ({ ...d, url: `${host}/api/proxy?url=${encodeURIComponent(d.url)}` }));
+      return res.json({ subject_id, se: s, ep: e, has_resource: true, sources, dash, hls: play.hls || [] });
     }
+  } catch (err) {}
 
-    if (data && data.has_resource) {
-      const host = `${req.protocol}://${req.get('host')}`;
-      if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
-      if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
-      if (data.hls) data.hls.forEach(h => { if (h.url) h.url = `${host}/api/proxy?url=${encodeURIComponent(h.url)}`; });
-      return res.json(data);
-    }
-    res.status(404).json({ error: 'No stream' });
-  } catch (err) { res.status(500).json({ error: 'Failed' }); }
-});
-
-app.get('/api/stream/:id/captions', async (req, res) => {
+  // 2. Fallback to your Vercel API
   try {
-    const data = await fetch(`${API_URL}/api/stream/${req.params.id}/captions?detail_path=${req.query.detail_path}&se=${req.query.se || 0}&ep=${req.query.ep || 0}`).then(res => res.json());
-    res.json(data || { captions: [] });
-  } catch(e) { res.json({ captions: [] }); }
+    const r = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.status(502).json({ error: 'Failed' }); }
 });
 
 app.get('/api/search', async (req, res) => {
@@ -129,4 +106,4 @@ app.get('/api/search', async (req, res) => {
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Nexmovies Ultimate Engine on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Nexmovies Engine Ready on ${PORT}`));
