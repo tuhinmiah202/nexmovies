@@ -8,14 +8,14 @@ const PORT = process.env.PORT || 7860;
 const API_URL = 'https://moviebox-api-steel.vercel.app';
 
 const CDN_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   'Accept': 'application/json, text/plain, */*',
   'Origin': 'https://moviebox.ph',
   'Referer': 'https://moviebox.ph/',
   'X-Client-Info': '{"timezone":"Asia/Dhaka"}'
 };
 
-// --- DIRECT MB RESOLVER (Fly.io IP is not blocked) ---
+// --- DIRECT MB RESOLVER (The same logic used by hdmoviebox) ---
 async function mbGetPlay(subjectId, slug, se, ep) {
   try {
     const url = `https://netfilm.world/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${encodeURIComponent(slug)}`;
@@ -28,24 +28,30 @@ async function mbGetPlay(subjectId, slug, se, ep) {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- PRODUCTION GRADE PROXY ---
+// --- PRODUCTION GRADE VIDEO PROXY ---
 app.get('/api/proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
+
   try {
     const proxyHeaders = { ...CDN_HEADERS };
     if (req.headers.range) proxyHeaders['Range'] = req.headers.range;
+
     const response = await fetch(url, { headers: proxyHeaders, redirect: 'follow', timeout: 30000 });
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', '*');
+
     if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
     if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
     res.setHeader('Accept-Ranges', 'bytes');
+
     if (response.status === 206) res.status(206);
     response.body.pipe(res);
-  } catch (e) { res.status(500).send('Proxy error'); }
+  } catch (e) {
+    res.status(500).send('Proxy failed');
+  }
 });
 
 // --- API ROUTES ---
@@ -77,25 +83,33 @@ app.get('/api/detail', async (req, res) => {
 
 app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
-  const s = se !== undefined ? parseInt(se) : 0;
-  const e = ep !== undefined ? parseInt(ep) : 0;
+  const s = parseInt(se) || 0;
+  const e = parseInt(ep) || 0;
 
   try {
-    // 1. Resolve directly on Fly.io (bypass Vercel Block)
-    const play = await mbGetPlay(subject_id, slug, s, e);
+    // 1. Resolve directly on Fly.io (The only way to bypass IP blocks)
+    const play = await mbGetPlay(subject_id, slug, s || 1, e || 1);
     if (play && (play.streams || play.dash)) {
-      const host = `${req.get('x-forwarded-proto') || 'https'}://${req.get('host')}`;
+      const host = `${req.protocol}://${req.get('host')}`;
       const sources = (play.streams || []).map(src => ({ ...src, url: `${host}/api/proxy?url=${encodeURIComponent(src.url)}`, resolution: src.resolutions + 'p' }));
       const dash = (play.dash || []).map(d => ({ ...d, url: `${host}/api/proxy?url=${encodeURIComponent(d.url)}` }));
-      return res.json({ subject_id, se: s, ep: e, has_resource: true, sources, dash, hls: play.hls || [] });
+      const hls = (play.hls || []).map(h => ({ ...h, url: `${host}/api/proxy?url=${encodeURIComponent(h.url)}` }));
+      return res.json({ subject_id, se: s, ep: e, has_resource: true, sources, dash, hls, free_episodes: play.freeNum });
     }
   } catch (err) {}
 
-  // 2. Fallback to your Vercel API
+  // 2. Fallback to Vercel API
   try {
     const r = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(res => res.json());
     res.json(r);
   } catch (e) { res.status(502).json({ error: 'Failed' }); }
+});
+
+app.get('/api/stream/:id/captions', async (req, res) => {
+  try {
+    const data = await fetch(`${API_URL}/api/stream/${req.params.id}/captions?detail_path=${req.query.detail_path}&se=${req.query.se || 0}&ep=${req.query.ep || 0}`).then(r => r.json());
+    res.json(data || { captions: [] });
+  } catch(e) { res.json({ captions: [] }); }
 });
 
 app.get('/api/search', async (req, res) => {
