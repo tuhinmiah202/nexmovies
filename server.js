@@ -11,14 +11,33 @@ const CDN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
   'Accept': 'application/json, text/plain, */*',
   'Origin': 'https://moviebox.ph',
-  'Referer': 'https://moviebox.ph/'
+  'Referer': 'https://moviebox.ph/',
+  'X-Client-Info': '{"timezone":"Asia/Dhaka"}'
 };
 
-// --- DIRECT RESOLVER TO BYPASS BLOCKS ---
-async function resolveStream(subjectId, slug, se, ep) {
+// --- MOVIEBOX GUEST SESSION RESOLVER ---
+let mbSession = { ts: 0, token: null };
+async function getMbToken() {
+  if (mbSession.token && Date.now() - mbSession.ts < 10 * 60 * 1000) return mbSession.token;
   try {
+    const res = await fetch('https://h5-api.aoneroom.com/wefeed-h5api-bff/media-player/get-domain', { headers: CDN_HEADERS });
+    const xUser = res.headers.get('x-user');
+    if (xUser) {
+      const token = JSON.parse(xUser).token;
+      mbSession = { ts: Date.now(), token };
+      return token;
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function resolveMbStream(subjectId, slug, se, ep) {
+  try {
+    const token = await getMbToken();
     const url = `https://netfilm.world/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${encodeURIComponent(slug)}`;
-    const res = await fetch(url, { headers: CDN_HEADERS, timeout: 10000 });
+    const headers = { ...CDN_HEADERS };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(url, { headers, timeout: 15000 });
     const json = await res.json();
     return json.data || null;
   } catch (e) { return null; }
@@ -27,31 +46,33 @@ async function resolveStream(subjectId, slug, se, ep) {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- ADVANCED PROXY WITH REWRITING ---
+// --- PRODUCTION GRADE PROXY ---
 app.get('/api/proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
 
   try {
-    const response = await fetch(url, {
-      headers: { ...CDN_HEADERS, 'Range': req.headers.range || '' },
-      redirect: 'follow',
-      timeout: 30000,
-    });
+    const proxyHeaders = { ...CDN_HEADERS };
+    if (req.headers.range) proxyHeaders['Range'] = req.headers.range;
 
+    const response = await fetch(url, { headers: proxyHeaders, redirect: 'follow', timeout: 30000 });
     const contentType = response.headers.get('content-type') || '';
+
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', '*');
 
-    if (url.includes('.mpd') || url.includes('.m3u8')) {
+    if (url.includes('.mpd') || url.includes('.m3u8') || contentType.includes('dash+xml') || contentType.includes('mpegurl')) {
       let text = await response.text();
-      const host = `${req.get('x-forwarded-proto') || 'https'}://${req.get('host')}`;
+      const host = `${req.protocol}://${req.get('host')}`;
       const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
 
-      if (url.includes('.mpd')) {
+      if (url.includes('.mpd') || contentType.includes('dash+xml')) {
         const proxyBase = `${host}/api/proxy?url=${encodeURIComponent(baseUrl)}`;
-        text = text.replace(/<BaseURL>.*?<\/BaseURL>/g, `<BaseURL>${proxyBase}</BaseURL>`);
-        if (!text.includes('<BaseURL>')) text = text.replace('<Period', `<BaseURL>${proxyBase}</BaseURL><Period`);
+        if (text.includes('<BaseURL>')) {
+          text = text.replace(/<BaseURL>.*?<\/BaseURL>/g, `<BaseURL>${proxyBase}</BaseURL>`);
+        } else {
+          text = text.replace('<Period', `<BaseURL>${proxyBase}</BaseURL><Period`);
+        }
       } else {
         const lines = text.split('\n');
         text = lines.map(l => (!l.trim() || l.startsWith('#')) ? l : `${host}/api/proxy?url=${encodeURIComponent(l.startsWith('http') ? l : new URL(l, baseUrl).href)}`).join('\n');
@@ -98,32 +119,34 @@ app.get('/api/detail', async (req, res) => {
 
 app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
-  const s = parseInt(se) || 1;
-  const e = parseInt(ep) || 1;
+  // CRITICAL: Handle se=0 and ep=0 correctly for movies
+  const s = se !== undefined ? parseInt(se) : 0;
+  const e = ep !== undefined ? parseInt(ep) : 0;
 
   try {
-    // RESOLVE DIRECTLY ON FLY.IO TO AVOID VERCEL IP BLOCK
-    const play = await resolveStream(subject_id, slug, s, e);
+    const play = await resolveMbStream(subject_id, slug, s, e);
     if (play && (play.streams || play.dash)) {
-      const host = `${req.get('x-forwarded-proto') || 'https'}://${req.get('host')}`;
+      const host = `${req.protocol}://${req.get('host')}`;
       const sources = (play.streams || []).map(src => ({ ...src, url: `${host}/api/proxy?url=${encodeURIComponent(src.url)}`, resolution: src.resolutions + 'p' }));
       const dash = (play.dash || []).map(d => ({ ...d, url: `${host}/api/proxy?url=${encodeURIComponent(d.url)}` }));
       const hls = (play.hls || []).map(h => ({ ...h, url: `${host}/api/proxy?url=${encodeURIComponent(h.url)}` }));
-      return res.json({ subject_id, se: s, ep: e, has_resource: true, sources, dash, hls });
+      return res.json({ subject_id, se: s, ep: e, has_resource: true, sources, dash, hls, free_episodes: play.freeNum });
     }
   } catch (err) {}
 
   // Fallback to Vercel API
   try {
-    const r = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${se || 0}&ep=${ep || 0}`).then(res => res.json());
+    const r = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(res => res.json());
     res.json(r);
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) { res.status(502).json({ error: 'Failed' }); }
 });
 
 app.get('/api/search', async (req, res) => {
-  const data = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q)}`).then(r => r.json());
-  res.json({ movies: (data?.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'moviebox' })) });
+  try {
+    const data = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q)}`).then(r => r.json());
+    res.json({ movies: (data?.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'moviebox' })) });
+  } catch(e) { res.json({ movies: [] }); }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Nexmovies Final Ready on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Nexmovies Engine Ready on ${PORT}`));
