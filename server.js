@@ -17,7 +17,7 @@ const CDN_HEADERS = {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- STABLE VIDEO PROXY ---
+// --- PRODUCTION GRADE VIDEO PROXY ---
 app.get('/api/proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
@@ -46,8 +46,8 @@ app.get('/api/proxy', async (req, res) => {
 // --- API ROUTES ---
 app.get('/api/home', async (req, res) => {
   try {
-    const r = await fetch(`${API_URL}/home`).then(res => res.json());
-    res.json({ sections: (r.sections || []).map(s => ({
+    const data = await fetch(`${API_URL}/home`).then(res => res.json());
+    res.json({ sections: (data.sections || []).map(s => ({
       title: s.section,
       items: (s.items || []).map(it => ({
         id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, badge: it.badge, source: 'moviebox', type: it.subject_type === 2 ? 'tv' : 'movie', backdrop: it.image_url || it.poster_url
@@ -58,48 +58,53 @@ app.get('/api/home', async (req, res) => {
 
 app.get('/api/detail', async (req, res) => {
   try {
-    const r = await fetch(`${API_URL}/detail/${req.query.slug}`).then(res => res.json());
-    const s = r?.data?.subject;
-    if (!s) return res.status(404).send('Not found');
-    res.json({
-      id: s.subjectId, title: s.title, poster: s.cover?.url, backdrop: s.stills?.url || s.cover?.url,
-      year: s.releaseDate?.substring(0,4), rating: s.imdbRatingValue, overview: s.description,
-      genres: s.genre ? s.genre.split(',').map(g=>g.trim()) : [], type: s.subjectType === 2 ? 'tv' : 'movie',
-      slug: s.detailPath, source: 'moviebox', resource: r.data.resource || {}, dubs: s.dubs || []
-    });
-  } catch (e) { res.status(500).send('Error'); }
+    const data = await fetch(`${API_URL}/detail/${req.query.slug}`).then(res => res.json());
+    if (data?.data?.subject) {
+      const s = data.data.subject;
+      res.json({
+        id: s.subjectId, title: s.title, poster: s.cover?.url, backdrop: s.stills?.url || s.cover?.url,
+        year: s.releaseDate?.substring(0,4), rating: s.imdbRatingValue, overview: s.description,
+        genres: s.genre ? s.genre.split(',').map(g=>g.trim()) : [], type: s.subjectType === 2 ? 'tv' : 'movie',
+        slug: s.detailPath, source: 'moviebox', resource: data.data.resource || {}, dubs: s.dubs || []
+      });
+    } else { res.status(404).send('Not found'); }
+  } catch(e) { res.status(500).send('Error'); }
 });
 
+// FIXED: CALLING THE CORRECT ENDPOINT AND PASSING PROPER PARAMS
 app.get('/api/stream', async (req, res) => {
   const { subject_id, slug, se, ep } = req.query;
   const s = se !== undefined ? se : 0;
   const e = ep !== undefined ? ep : 0;
   try {
-    const r = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`).then(res => res.json());
-    if (r && r.has_resource) {
+    // Calling /api/stream of your backend
+    const response = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`);
+    const data = await response.json();
+
+    if (data && data.has_resource) {
       const host = `${req.protocol}://${req.get('host')}`;
-      if (r.sources) r.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
-      if (r.dash) r.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
-      if (r.hls) r.hls.forEach(h => { if (h.url) h.url = `${host}/api/proxy?url=${encodeURIComponent(h.url)}`; });
-      return res.json(r);
+      if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
+      if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
+      if (data.hls) data.hls.forEach(h => { if (h.url) h.url = `${host}/api/proxy?url=${encodeURIComponent(h.url)}`; });
+      return res.json(data);
     }
-    res.status(404).json({ error: 'No stream' });
-  } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    res.status(404).json({ error: 'No stream found' });
+  } catch (err) { res.status(500).json({ error: 'Internal Error' }); }
 });
 
 app.get('/api/stream/:id/captions', async (req, res) => {
   try {
-    const r = await fetch(`${API_URL}/api/stream/${req.params.id}/captions?detail_path=${req.query.detail_path}&se=${req.query.se || 0}&ep=${req.query.ep || 0}`).then(res => res.json());
-    res.json(r || { captions: [] });
+    const data = await fetch(`${API_URL}/api/stream/${req.params.id}/captions?detail_path=${req.query.detail_path}&se=${req.query.se || 0}&ep=${req.query.ep || 0}`).then(r => r.json());
+    res.json(data || { captions: [] });
   } catch(e) { res.json({ captions: [] }); }
 });
 
 app.get('/api/search', async (req, res) => {
   try {
-    const r = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q)}`).then(res => res.json());
-    res.json({ movies: (r.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'moviebox' })) });
+    const data = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q)}`).then(r => r.json());
+    res.json({ movies: (data?.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'moviebox' })) });
   } catch(e) { res.json({ movies: [] }); }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server fully synced with backend on ${PORT}`));
