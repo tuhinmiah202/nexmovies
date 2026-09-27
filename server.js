@@ -32,16 +32,18 @@ app.get('/api/proxy', async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', '*');
 
-    if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
     if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
     res.setHeader('Accept-Ranges', 'bytes');
 
-    // Force direct file download if download=1 or title/filename is supplied
+    // Force direct file download on all browsers (including Android/iOS Chrome)
     if (download === '1' || filename || title) {
       const cleanName = (filename || title || 'video').replace(/[^a-zA-Z0-9 _.-]/g, '').trim() || 'video';
       const nameWithExt = cleanName.toLowerCase().endsWith('.mp4') ? cleanName : `${cleanName}.mp4`;
+      res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${nameWithExt}"`);
+    } else {
+      if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
     }
 
     if (response.status === 206) res.status(206);

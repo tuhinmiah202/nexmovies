@@ -1515,13 +1515,8 @@ async function triggerCardDownload(subjectId, slug, btn) {
     const baseProxy = best.url.includes('/api/proxy') ? best.url : `/api/proxy?url=${encodeURIComponent(best.url)}`;
     const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(title)}`;
 
-    // Use hidden anchor to trigger direct download
-    const a = document.createElement('a');
-    a.href = proxyUrl;
-    a.download = `${title}.mp4`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    // Trigger direct native browser download window
+    window.location.href = proxyUrl;
   } catch (err) {
     console.error('Download failed:', err);
     alert('Download failed. Please try again.');
@@ -1960,12 +1955,10 @@ async function openDetail(source, type, id, slug) {
           if (!url) return;
           const baseProxy = url.includes('/api/proxy') ? url : `/api/proxy?url=${encodeURIComponent(url)}`;
           const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(title)}`;
-          const a = document.createElement('a');
-          a.href = proxyUrl;
-          a.download = `${title}.mp4`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
+
+          // Trigger direct native browser download window
+          window.location.href = proxyUrl;
+          dlDropdown.classList.remove('show');
           dlDropdown.classList.remove('show');
         });
       });
