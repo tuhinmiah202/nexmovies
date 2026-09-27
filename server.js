@@ -57,6 +57,13 @@ app.get('/api/home', async (req, res) => {
   } catch (e) { res.json({ sections: [] }); }
 });
 
+app.get('/api/home/categories', async (req, res) => {
+  try {
+    const r = await fetch(`${API_URL}/home/categories`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.json({}); }
+});
+
 app.get('/api/detail', async (req, res) => {
   try {
     const r = await fetch(`${API_URL}/detail/${req.query.slug}`).then(res => res.json());
@@ -76,30 +83,38 @@ app.get('/api/stream', async (req, res) => {
   const s = se !== undefined ? parseInt(se) : 0;
   const e = ep !== undefined ? parseInt(ep) : 0;
 
+  // 1. Fetch from backend API which generates signed stream hash automatically
   try {
-    // 1. Try Resolving directly on Fly.io using its IP
-    const directUrl = `https://netfilm.world/wefeed-h5api-bff/subject/play?subjectId=${subject_id}&se=${s || 1}&ep=${e || 1}&detailPath=${encodeURIComponent(slug)}`;
-    const directRes = await fetch(directUrl, { headers: CDN_HEADERS, timeout: 10000 });
-    const directData = await directRes.json();
+    const response = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${encodeURIComponent(slug || '')}&se=${s}&ep=${e}`);
+    const data = await response.json();
+    const hasSources = Array.isArray(data?.sources) && data.sources.length > 0;
+    const hasDash = Array.isArray(data?.dash) && data.dash.length > 0;
+    const hasHls = Array.isArray(data?.hls) && data.hls.length > 0;
 
-    if (directData && directData.data && (directData.data.streams || directData.data.dash)) {
-      const play = directData.data;
+    if (data && data.has_resource && (hasSources || hasDash || hasHls)) {
       const host = `${req.protocol}://${req.get('host')}`;
-      const sources = (play.streams || []).map(src => ({ ...src, url: `${host}/api/proxy?url=${encodeURIComponent(src.url)}`, resolution: src.resolutions + 'p' }));
-      const dash = (play.dash || []).map(d => ({ ...d, url: `${host}/api/proxy?url=${encodeURIComponent(d.url)}` }));
-      return res.json({ subject_id, se: s, ep: e, has_resource: true, sources, dash, hls: play.hls || [] });
+      if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
+      if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
+      if (data.hls) data.hls.forEach(h => { if (h.url) h.url = `${host}/api/proxy?url=${encodeURIComponent(h.url)}`; });
+      return res.json(data);
     }
   } catch (err) {}
 
-  // 2. Fallback to Vercel API
+  // 2. Direct fallback to netfilm if non-empty streams exist
   try {
-    const response = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${slug}&se=${s}&ep=${e}`);
-    const data = await response.json();
-    if (data && data.has_resource) {
-       const host = `${req.protocol}://${req.get('host')}`;
-       if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
-       if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
-       return res.json(data);
+    const directUrl = `https://netfilm.world/wefeed-h5api-bff/subject/play?subjectId=${subject_id}&se=${s}&ep=${e}&detailPath=${encodeURIComponent(slug || '')}`;
+    const directRes = await fetch(directUrl, { headers: CDN_HEADERS, timeout: 10000 });
+    const directData = await directRes.json();
+
+    const play = directData?.data;
+    const hasStreams = Array.isArray(play?.streams) && play.streams.length > 0;
+    const hasDash = Array.isArray(play?.dash) && play.dash.length > 0;
+
+    if (directData && play && (hasStreams || hasDash)) {
+      const host = `${req.protocol}://${req.get('host')}`;
+      const sources = (play.streams || []).map(src => ({ ...src, url: `${host}/api/proxy?url=${encodeURIComponent(src.url)}`, resolution: (src.resolutions || '') + 'p' }));
+      const dash = (play.dash || []).map(d => ({ ...d, url: `${host}/api/proxy?url=${encodeURIComponent(d.url)}` }));
+      return res.json({ subject_id, se: s, ep: e, has_resource: true, sources, dash, hls: play.hls || [] });
     }
   } catch (err) {}
 
@@ -108,9 +123,98 @@ app.get('/api/stream', async (req, res) => {
 
 app.get('/api/search', async (req, res) => {
   try {
-    const r = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q)}`).then(res => res.json());
+    const r = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q || '')}`).then(res => res.json());
     res.json({ movies: (r.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'nexmovies' })) });
   } catch(e) { res.json({ movies: [] }); }
+});
+
+app.get('/api/search/suggest', async (req, res) => {
+  try {
+    const r = await fetch(`${API_URL}/search/suggest?q=${encodeURIComponent(req.query.q || '')}`).then(res => res.json());
+    res.json(r);
+  } catch(e) { res.json({ suggestions: [] }); }
+});
+
+app.get('/api/recent-movies', async (req, res) => {
+  try {
+    const r = await fetch(`${API_URL}/movies?page=1`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.json({ items: [] }); }
+});
+
+app.get('/api/movies', async (req, res) => {
+  try {
+    const page = req.query.page || 1;
+    const r = await fetch(`${API_URL}/movies?page=${page}`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.json({ items: [] }); }
+});
+
+app.get('/api/tv-series', async (req, res) => {
+  try {
+    const page = req.query.page || 1;
+    const r = await fetch(`${API_URL}/tv-series?page=${page}`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.json({ items: [] }); }
+});
+
+app.get('/api/animation', async (req, res) => {
+  try {
+    const page = req.query.page || 1;
+    const r = await fetch(`${API_URL}/animation?page=${page}`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.json({ items: [] }); }
+});
+
+app.get('/api/ranking', async (req, res) => {
+  try {
+    const page = req.query.page || 1;
+    const r = await fetch(`${API_URL}/ranking?page=${page}`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.json({ items: [] }); }
+});
+
+app.get('/api/top-imdb', async (req, res) => {
+  try {
+    const page = req.query.page || 1;
+    const r = await fetch(`${API_URL}/top-imdb?page=${page}`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.json({ items: [] }); }
+});
+
+app.get('/api/dubbed', async (req, res) => {
+  try {
+    const page = req.query.page || 1;
+    const lang = req.query.language || 'Hindi';
+    const r = await fetch(`${API_URL}/dubbed?language=${encodeURIComponent(lang)}&page=${page}`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.json({ items: [] }); }
+});
+
+app.get('/api/genre/:name', async (req, res) => {
+  try {
+    const page = req.query.page || 1;
+    const type = req.query.type || 'movie';
+    const r = await fetch(`${API_URL}/genre/${encodeURIComponent(req.params.name)}?type=${type}&page=${page}`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.json({ items: [] }); }
+});
+
+app.get('/api/section', async (req, res) => {
+  try {
+    const r = await fetch(`${API_URL}/home`).then(res => res.json());
+    const target = (req.query.name || '').toLowerCase();
+    const sec = (r.sections || []).find(s => s.section && s.section.toLowerCase().includes(target));
+    res.json({ title: sec?.section || req.query.name, items: sec?.items || [], hasMore: false });
+  } catch (e) { res.json({ items: [], hasMore: false }); }
+});
+
+app.get('/api/stream/:id/captions', async (req, res) => {
+  try {
+    const { detail_path, se, ep } = req.query;
+    const r = await fetch(`${API_URL}/api/stream/${req.params.id}/captions?detail_path=${encodeURIComponent(detail_path || '')}&se=${se || 0}&ep=${ep || 0}`).then(res => res.json());
+    res.json(r);
+  } catch (e) { res.json({ captions: [] }); }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
