@@ -18,9 +18,9 @@ const CDN_HEADERS = {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- STABLE VIDEO PROXY ---
+// --- STABLE VIDEO PROXY WITH DIRECT DOWNLOAD SUPPORT ---
 app.get('/api/proxy', async (req, res) => {
-  const { url } = req.query;
+  const { url, download, title, filename } = req.query;
   if (!url) return res.status(400).send('Missing url');
 
   try {
@@ -36,6 +36,13 @@ app.get('/api/proxy', async (req, res) => {
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
     if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
     res.setHeader('Accept-Ranges', 'bytes');
+
+    // Force direct file download if download=1 or title/filename is supplied
+    if (download === '1' || filename || title) {
+      const cleanName = (filename || title || 'video').replace(/[^a-zA-Z0-9 _.-]/g, '').trim() || 'video';
+      const nameWithExt = cleanName.toLowerCase().endsWith('.mp4') ? cleanName : `${cleanName}.mp4`;
+      res.setHeader('Content-Disposition', `attachment; filename="${nameWithExt}"`);
+    }
 
     if (response.status === 206) res.status(206);
     response.body.pipe(res);

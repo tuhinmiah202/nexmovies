@@ -1512,12 +1512,13 @@ async function triggerCardDownload(subjectId, slug, btn) {
     mp4Sources.sort((a, b) => b.height - a.height);
     const best = mp4Sources[0];
     const title = (card ? card.querySelector('.card-title') : null)?.textContent || 'download';
-    const proxyUrl = best.url.includes('/api/proxy') ? best.url : `/api/proxy?url=${encodeURIComponent(best.url)}`;
+    const baseProxy = best.url.includes('/api/proxy') ? best.url : `/api/proxy?url=${encodeURIComponent(best.url)}`;
+    const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(title)}`;
 
-    // Use hidden anchor to trigger download
+    // Use hidden anchor to trigger direct download
     const a = document.createElement('a');
-    a.href = proxyUrl + `&title=${encodeURIComponent(title)}`;
-    a.download = '';
+    a.href = proxyUrl;
+    a.download = `${title}.mp4`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1957,10 +1958,11 @@ async function openDetail(source, type, id, slug) {
           const url = opt.dataset.url;
           const title = opt.dataset.title || 'download';
           if (!url) return;
-          const proxyUrl = url.includes('/api/proxy') ? url : `/api/proxy?url=${encodeURIComponent(url)}`;
+          const baseProxy = url.includes('/api/proxy') ? url : `/api/proxy?url=${encodeURIComponent(url)}`;
+          const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(title)}`;
           const a = document.createElement('a');
-          a.href = proxyUrl + `&title=${encodeURIComponent(title)}`;
-          a.download = '';
+          a.href = proxyUrl;
+          a.download = `${title}.mp4`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
