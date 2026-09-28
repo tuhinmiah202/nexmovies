@@ -36,12 +36,15 @@ app.get('/api/proxy', async (req, res) => {
     if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
     res.setHeader('Accept-Ranges', 'bytes');
 
-    // Force direct file download on all browsers (including Android/iOS Chrome)
+    // Force direct file download on all browsers (safe header formatting)
     if (download === '1' || filename || title) {
-      const cleanName = (filename || title || 'video').replace(/[^a-zA-Z0-9 _.-]/g, '').trim() || 'video';
-      const nameWithExt = cleanName.toLowerCase().endsWith('.mp4') ? cleanName : `${cleanName}.mp4`;
+      const rawName = (filename || title || 'video').toString();
+      const safeAsciiName = rawName.replace(/["\r\n\t]/g, '').replace(/[^\x20-\x7E]/g, '').trim() || 'video';
+      const asciiNameWithExt = safeAsciiName.toLowerCase().endsWith('.mp4') ? safeAsciiName : `${safeAsciiName}.mp4`;
+      const encodedUtf8Name = encodeURIComponent(rawName.toLowerCase().endsWith('.mp4') ? rawName : `${rawName}.mp4`);
+
       res.setHeader('Content-Type', 'application/octet-stream');
-      res.setHeader('Content-Disposition', `attachment; filename="${nameWithExt}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${asciiNameWithExt}"; filename*=UTF-8''${encodedUtf8Name}`);
     } else {
       if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
     }
@@ -49,7 +52,8 @@ app.get('/api/proxy', async (req, res) => {
     if (response.status === 206) res.status(206);
     response.body.pipe(res);
   } catch (e) {
-    res.status(500).send('Proxy failed');
+    console.error('Proxy error:', e);
+    if (!res.headersSent) res.status(500).send('Proxy failed');
   }
 });
 
