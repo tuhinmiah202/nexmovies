@@ -1490,15 +1490,10 @@ function triggerDirectDownload(url, title) {
 
   showDownloadToast(`⬇️ Starting download: ${cleanTitle}`);
 
-  // Use invisible iframe to trigger native browser download manager
-  let iframe = document.getElementById('downloadIframe');
-  if (!iframe) {
-    iframe = document.createElement('iframe');
-    iframe.id = 'downloadIframe';
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-  }
-  iframe.src = proxyUrl;
+  // Top-level location trigger to bypass mobile Chrome/Safari iframe download blocks
+  setTimeout(() => {
+    window.location.href = proxyUrl;
+  }, 200);
 }
 
 // --- Card download handler ---
