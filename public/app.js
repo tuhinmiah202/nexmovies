@@ -1489,7 +1489,9 @@ function triggerDirectDownload(url, title) {
   if (!url) return;
   const cleanTitle = title || 'video';
   const baseProxy = url.includes('/api/proxy') ? url : `/api/proxy?url=${encodeURIComponent(url)}`;
-  const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(cleanTitle)}`;
+  const proxyUrl = baseProxy.includes('download=1')
+    ? baseProxy
+    : `${baseProxy}&download=1&title=${encodeURIComponent(cleanTitle)}`;
 
   showDownloadToast(`⬇️ Starting download: ${cleanTitle}`);
 
@@ -1499,7 +1501,9 @@ function triggerDirectDownload(url, title) {
   a.download = `${cleanTitle}.mp4`;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
+  setTimeout(() => {
+    try { document.body.removeChild(a); } catch(e){}
+  }, 200);
 }
 
 // --- Card download handler ---
@@ -1980,8 +1984,11 @@ async function openDetail(source, type, id, slug) {
         dlDropdown.classList.toggle('show');
       });
       dlDropdown.querySelectorAll('.dl-option').forEach(opt => {
-        opt.addEventListener('click', () => {
-          showDownloadToast(`⬇️ Starting download: ${currentDetail?.title || 'video'}`);
+        opt.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const url = opt.dataset.url;
+          const title = opt.dataset.title || currentDetail?.title || 'video';
+          if (url) triggerDirectDownload(url, title);
           dlDropdown.classList.remove('show');
         });
       });
