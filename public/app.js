@@ -1495,15 +1495,17 @@ function triggerDirectDownload(url, title) {
 
   showDownloadToast(`⬇️ Starting download: ${cleanTitle}`);
 
-  // Create native anchor click
+  // Background window target=blank anchor so Mobile Chrome handles download without freezing current page
   const a = document.createElement('a');
   a.href = proxyUrl;
+  a.target = '_blank';
+  a.rel = 'noopener';
   a.download = `${cleanTitle}.mp4`;
   document.body.appendChild(a);
   a.click();
   setTimeout(() => {
     try { document.body.removeChild(a); } catch(e){}
-  }, 200);
+  }, 300);
 }
 
 // --- Card download handler ---

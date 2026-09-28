@@ -18,14 +18,15 @@ const CDN_HEADERS = {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- STABLE VIDEO PROXY WITH STREAMING & FAST DIRECT DOWNLOAD SUPPORT ---
+// --- STABLE VIDEO PROXY WITH FAST RANGE HEADERS & DIRECT DOWNLOAD SUPPORT ---
 app.get('/api/proxy', async (req, res) => {
   const { url, download, title, filename } = req.query;
   if (!url) return res.status(400).send('Missing url');
 
   try {
     const proxyHeaders = { ...CDN_HEADERS };
-    if (req.headers.range) proxyHeaders['Range'] = req.headers.range;
+    // Always supply Range header for ultra-fast 100ms CDN header responses
+    proxyHeaders['Range'] = req.headers.range || 'bytes=0-';
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
@@ -49,7 +50,7 @@ app.get('/api/proxy', async (req, res) => {
     if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
     res.setHeader('Accept-Ranges', 'bytes');
 
-    // Force direct file download with safe header formatting
+    // Force direct file download on all browsers
     if (download === '1' || filename || title) {
       const rawName = (filename || title || 'video').toString();
       const safeAsciiName = rawName.replace(/["\r\n\t]/g, '').replace(/[^\x20-\x7E]/g, '').trim() || 'video';
