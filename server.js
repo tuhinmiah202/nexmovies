@@ -18,15 +18,10 @@ const CDN_HEADERS = {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- STABLE VIDEO PROXY WITH DIRECT CDN REDIRECT FOR DOWNLOADS ---
+// --- STABLE VIDEO PROXY WITH DIRECT DOWNLOAD & MEMORY CLEANUP SUPPORT ---
 app.get('/api/proxy', async (req, res) => {
-  const { url, download } = req.query;
+  const { url, download, title, filename } = req.query;
   if (!url) return res.status(400).send('Missing url');
-
-  // For file downloads, redirect directly to signed CDN URL so Render server uses 0% RAM/CPU and never hangs
-  if (download === '1') {
-    return res.redirect(302, url);
-  }
 
   try {
     const proxyHeaders = { ...CDN_HEADERS };
@@ -45,9 +40,29 @@ app.get('/api/proxy', async (req, res) => {
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
     if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
     res.setHeader('Accept-Ranges', 'bytes');
-    if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
+
+    // Force direct file download with safe header formatting
+    if (download === '1' || filename || title) {
+      const rawName = (filename || title || 'video').toString();
+      const safeAsciiName = rawName.replace(/["\r\n\t]/g, '').replace(/[^\x20-\x7E]/g, '').trim() || 'video';
+      const asciiNameWithExt = safeAsciiName.toLowerCase().endsWith('.mp4') ? safeAsciiName : `${safeAsciiName}.mp4`;
+      const encodedUtf8Name = encodeURIComponent(rawName.toLowerCase().endsWith('.mp4') ? rawName : `${rawName}.mp4`);
+
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${asciiNameWithExt}"; filename*=UTF-8''${encodedUtf8Name}`);
+    } else {
+      if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
+    }
 
     if (response.status === 206) res.status(206);
+
+    // Free memory immediately when client disconnects to prevent Render RAM overload
+    res.on('close', () => {
+      if (response.body && typeof response.body.destroy === 'function') {
+        response.body.destroy();
+      }
+    });
+
     response.body.pipe(res);
   } catch (e) {
     console.error('Proxy error:', e);
