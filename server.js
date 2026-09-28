@@ -18,10 +18,15 @@ const CDN_HEADERS = {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- STABLE VIDEO PROXY WITH DIRECT DOWNLOAD SUPPORT ---
+// --- STABLE VIDEO PROXY WITH DIRECT CDN REDIRECT FOR DOWNLOADS ---
 app.get('/api/proxy', async (req, res) => {
-  const { url, download, title, filename } = req.query;
+  const { url, download } = req.query;
   if (!url) return res.status(400).send('Missing url');
+
+  // For file downloads, redirect directly to signed CDN URL so Render server uses 0% RAM/CPU and never hangs
+  if (download === '1') {
+    return res.redirect(302, url);
+  }
 
   try {
     const proxyHeaders = { ...CDN_HEADERS };
@@ -29,25 +34,18 @@ app.get('/api/proxy', async (req, res) => {
 
     const response = await fetch(url, { headers: proxyHeaders, redirect: 'follow' });
 
+    if (!response.ok && response.status !== 206) {
+      console.error(`CDN Proxy status error: ${response.status} for ${url}`);
+      return res.status(response.status).send('CDN response error');
+    }
+
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', '*');
 
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
     if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
     res.setHeader('Accept-Ranges', 'bytes');
-
-    // Force direct file download on all browsers (safe header formatting)
-    if (download === '1' || filename || title) {
-      const rawName = (filename || title || 'video').toString();
-      const safeAsciiName = rawName.replace(/["\r\n\t]/g, '').replace(/[^\x20-\x7E]/g, '').trim() || 'video';
-      const asciiNameWithExt = safeAsciiName.toLowerCase().endsWith('.mp4') ? safeAsciiName : `${safeAsciiName}.mp4`;
-      const encodedUtf8Name = encodeURIComponent(rawName.toLowerCase().endsWith('.mp4') ? rawName : `${rawName}.mp4`);
-
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.setHeader('Content-Disposition', `attachment; filename="${asciiNameWithExt}"; filename*=UTF-8''${encodedUtf8Name}`);
-    } else {
-      if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
-    }
+    if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
 
     if (response.status === 206) res.status(206);
     response.body.pipe(res);
