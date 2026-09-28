@@ -1467,6 +1467,40 @@ function attachCardListeners() {
   });
 }
 
+// --- Direct Download Manager Helpers ---
+function showDownloadToast(msg) {
+  let t = document.getElementById('dlToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'dlToast';
+    t.className = 'dl-toast';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t.__hideTimer);
+  t.__hideTimer = setTimeout(() => t.classList.remove('show'), 4000);
+}
+
+function triggerDirectDownload(url, title) {
+  if (!url) return;
+  const cleanTitle = title || 'video';
+  const baseProxy = url.includes('/api/proxy') ? url : `/api/proxy?url=${encodeURIComponent(url)}`;
+  const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(cleanTitle)}`;
+
+  showDownloadToast(`⬇️ Starting download: ${cleanTitle}`);
+
+  // Use invisible iframe to trigger native browser download manager
+  let iframe = document.getElementById('downloadIframe');
+  if (!iframe) {
+    iframe = document.createElement('iframe');
+    iframe.id = 'downloadIframe';
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+  }
+  iframe.src = proxyUrl;
+}
+
 // --- Card download handler ---
 async function triggerCardDownload(subjectId, slug, btn) {
   const originalHtml = btn.innerHTML;
@@ -1512,16 +1546,8 @@ async function triggerCardDownload(subjectId, slug, btn) {
     mp4Sources.sort((a, b) => b.height - a.height);
     const best = mp4Sources[0];
     const title = (card ? card.querySelector('.card-title') : null)?.textContent || 'download';
-    const baseProxy = best.url.includes('/api/proxy') ? best.url : `/api/proxy?url=${encodeURIComponent(best.url)}`;
-    const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(title)}`;
 
-    // Trigger direct native browser download without opening new tab
-    const a = document.createElement('a');
-    a.href = proxyUrl;
-    a.download = `${title}.mp4`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    triggerDirectDownload(best.url, title);
   } catch (err) {
     console.error('Download failed:', err);
     alert('Download failed. Please try again.');
@@ -1867,10 +1893,7 @@ async function openDetail(source, type, id, slug) {
     if (downloadOptions.length > 0) {
       const dlItems = downloadOptions.map((opt, i) => {
         const sizeStr = opt.size ? ` (${opt.size})` : '';
-        const url = opt.url;
-        const baseProxy = url.includes('/api/proxy') ? url : `/api/proxy?url=${encodeURIComponent(url)}`;
-        const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(detail.title || 'video')}`;
-        return `<a href="${proxyUrl}" download="${esc(detail.title || 'video')}.mp4" class="dl-option">${opt.label}${sizeStr}</a>`;
+        return `<button class="dl-option" data-url="${esc(opt.url)}" data-title="${esc(detail.title || '')}">${opt.label}${sizeStr}</button>`;
       }).join('');
       downloadHtml = `
         <div class="download-section">
@@ -1956,7 +1979,12 @@ async function openDetail(source, type, id, slug) {
         dlDropdown.classList.toggle('show');
       });
       dlDropdown.querySelectorAll('.dl-option').forEach(opt => {
-        opt.addEventListener('click', () => {
+        opt.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const url = opt.dataset.url;
+          const title = opt.dataset.title || currentDetail?.title || 'video';
+          if (url) triggerDirectDownload(url, title);
           dlDropdown.classList.remove('show');
         });
       });

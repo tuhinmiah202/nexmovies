@@ -1014,6 +1014,31 @@ body {
 }
 .dl-option:hover { background: rgba(255,255,255,0.08); color: #fff; }
 
+/* Download Toast Notification */
+.dl-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #1db954;
+  color: #000;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 12px 24px;
+  border-radius: 30px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 10000;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s;
+  pointer-events: none;
+}
+.dl-toast.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
 .card-info { padding: 10px 4px 0; }
 .card-title {
   font-size: 14px;
