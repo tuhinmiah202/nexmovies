@@ -1490,15 +1490,8 @@ function triggerDirectDownload(url, title) {
 
   showDownloadToast(`⬇️ Starting download: ${cleanTitle}`);
 
-  // Multi-tier download trigger for universal mobile & desktop browser support
-  try {
-    const win = window.open(proxyUrl, '_blank');
-    if (!win || win.closed || typeof win.closed === 'undefined') {
-      window.location.href = proxyUrl;
-    }
-  } catch (e) {
-    window.location.href = proxyUrl;
-  }
+  // Top-level direct navigation (bypasses Laptop/PC Pop-up Blockers completely)
+  window.location.href = proxyUrl;
 }
 
 // --- Card download handler ---
