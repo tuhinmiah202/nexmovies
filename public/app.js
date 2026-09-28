@@ -1515,12 +1515,10 @@ async function triggerCardDownload(subjectId, slug, btn) {
     const baseProxy = best.url.includes('/api/proxy') ? best.url : `/api/proxy?url=${encodeURIComponent(best.url)}`;
     const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(title)}`;
 
-    // Trigger direct native browser download
+    // Trigger direct native browser download without opening new tab
     const a = document.createElement('a');
     a.href = proxyUrl;
     a.download = `${title}.mp4`;
-    a.target = '_blank';
-    a.rel = 'noopener';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1872,7 +1870,7 @@ async function openDetail(source, type, id, slug) {
         const url = opt.url;
         const baseProxy = url.includes('/api/proxy') ? url : `/api/proxy?url=${encodeURIComponent(url)}`;
         const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(detail.title || 'video')}`;
-        return `<a href="${proxyUrl}" download="${esc(detail.title || 'video')}.mp4" target="_blank" rel="noopener" class="dl-option">${opt.label}${sizeStr}</a>`;
+        return `<a href="${proxyUrl}" download="${esc(detail.title || 'video')}.mp4" class="dl-option">${opt.label}${sizeStr}</a>`;
       }).join('');
       downloadHtml = `
         <div class="download-section">
