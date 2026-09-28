@@ -18,7 +18,7 @@ const CDN_HEADERS = {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- STABLE VIDEO PROXY WITH DIRECT DOWNLOAD & MEMORY CLEANUP SUPPORT ---
+// --- STABLE VIDEO PROXY WITH STREAMING & FAST DIRECT DOWNLOAD SUPPORT ---
 app.get('/api/proxy', async (req, res) => {
   const { url, download, title, filename } = req.query;
   if (!url) return res.status(400).send('Missing url');
@@ -27,7 +27,15 @@ app.get('/api/proxy', async (req, res) => {
     const proxyHeaders = { ...CDN_HEADERS };
     if (req.headers.range) proxyHeaders['Range'] = req.headers.range;
 
-    const response = await fetch(url, { headers: proxyHeaders, redirect: 'follow' });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    const response = await fetch(url, {
+      headers: proxyHeaders,
+      redirect: 'follow',
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
 
     if (!response.ok && response.status !== 206) {
       console.error(`CDN Proxy status error: ${response.status} for ${url}`);
@@ -56,7 +64,7 @@ app.get('/api/proxy', async (req, res) => {
 
     if (response.status === 206) res.status(206);
 
-    // Free memory immediately when client disconnects to prevent Render RAM overload
+    // Free fetch stream immediately when client disconnects to prevent Render hanging/RAM overload
     res.on('close', () => {
       if (response.body && typeof response.body.destroy === 'function') {
         response.body.destroy();

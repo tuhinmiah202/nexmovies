@@ -1490,8 +1490,13 @@ function triggerDirectDownload(url, title) {
 
   showDownloadToast(`⬇️ Starting download: ${cleanTitle}`);
 
-  // Top-level direct navigation (bypasses Laptop/PC Pop-up Blockers completely)
-  window.location.href = proxyUrl;
+  // Create native anchor click
+  const a = document.createElement('a');
+  a.href = proxyUrl;
+  a.download = `${cleanTitle}.mp4`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 // --- Card download handler ---
@@ -1972,12 +1977,8 @@ async function openDetail(source, type, id, slug) {
         dlDropdown.classList.toggle('show');
       });
       dlDropdown.querySelectorAll('.dl-option').forEach(opt => {
-        opt.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const url = opt.dataset.url;
-          const title = opt.dataset.title || currentDetail?.title || 'video';
-          if (url) triggerDirectDownload(url, title);
+        opt.addEventListener('click', () => {
+          showDownloadToast(`⬇️ Starting download: ${currentDetail?.title || 'video'}`);
           dlDropdown.classList.remove('show');
         });
       });
