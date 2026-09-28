@@ -1866,7 +1866,7 @@ async function openDetail(source, type, id, slug) {
     }
 
     let downloadHtml = '';
-    if (downloadOptions.length > 0 && (source === 'moviebox' || source === 'nexmovies')) {
+    if (downloadOptions.length > 0) {
       const dlItems = downloadOptions.map((opt, i) => {
         const sizeStr = opt.size ? ` (${opt.size})` : '';
         const url = opt.url;

@@ -27,7 +27,7 @@ app.get('/api/proxy', async (req, res) => {
     const proxyHeaders = { ...CDN_HEADERS };
     if (req.headers.range) proxyHeaders['Range'] = req.headers.range;
 
-    const response = await fetch(url, { headers: proxyHeaders, redirect: 'follow', timeout: 30000 });
+    const response = await fetch(url, { headers: proxyHeaders, redirect: 'follow' });
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', '*');
