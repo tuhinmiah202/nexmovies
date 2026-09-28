@@ -1490,10 +1490,15 @@ function triggerDirectDownload(url, title) {
 
   showDownloadToast(`⬇️ Starting download: ${cleanTitle}`);
 
-  // Top-level location trigger to bypass mobile Chrome/Safari iframe download blocks
-  setTimeout(() => {
+  // Multi-tier download trigger for universal mobile & desktop browser support
+  try {
+    const win = window.open(proxyUrl, '_blank');
+    if (!win || win.closed || typeof win.closed === 'undefined') {
+      window.location.href = proxyUrl;
+    }
+  } catch (e) {
     window.location.href = proxyUrl;
-  }, 200);
+  }
 }
 
 // --- Card download handler ---
