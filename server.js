@@ -37,11 +37,13 @@ app.get('/api/proxy', async (req, res) => {
 
   try {
     const proxyHeaders = { ...CDN_HEADERS };
-    // Always supply Range: bytes=0- so CDN edge servers respond in <200ms
-    proxyHeaders['Range'] = req.headers.range || 'bytes=0-';
+    // Pass Range header ONLY if explicitly requested by video player (seeking) AND NOT downloading
+    if (req.headers.range && !isDownload) {
+      proxyHeaders['Range'] = req.headers.range;
+    }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
+    const timeout = setTimeout(() => controller.abort(), 60000);
 
     const response = await fetch(url, {
       headers: proxyHeaders,
@@ -58,17 +60,7 @@ app.get('/api/proxy', async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', '*');
 
-    // Extract total file size from Content-Length or Content-Range (bytes 0-123/785890818)
-    let totalSize = response.headers.get('content-length');
-    const contentRange = response.headers.get('content-range');
-    if (contentRange && contentRange.includes('/')) {
-      const parts = contentRange.split('/');
-      if (parts[1] && parts[1] !== '*') {
-        totalSize = parts[1];
-      }
-    }
-
-    if (totalSize) res.setHeader('Content-Length', totalSize);
+    if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
     res.setHeader('Accept-Ranges', 'bytes');
 
     if (isDownload) {
@@ -79,10 +71,10 @@ app.get('/api/proxy', async (req, res) => {
 
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${asciiNameWithExt}"; filename*=UTF-8''${encodedUtf8Name}`);
-      res.status(200); // Always HTTP 200 OK for Chrome/Safari download manager
+      res.status(200);
     } else {
       if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
-      if (contentRange) res.setHeader('Content-Range', contentRange);
+      if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
       if (response.status === 206) res.status(206);
     }
 
