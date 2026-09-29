@@ -85,12 +85,15 @@ let deferredPrompt;
 
 function checkPWAInstalled() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                       window.matchMedia('(display-mode: minimal-ui)').matches ||
                        window.navigator.standalone === true ||
-                       document.referrer.includes('android-app://');
+                       document.referrer.includes('android-app://') ||
+                       localStorage.getItem('pwaInstalled') === 'true';
 
   if (isStandalone) {
+    document.body.classList.add('pwa-installed');
     document.querySelectorAll('.get-app-box, #topInstallBtn, #installAppBtn, .btn-download, .get-app-btn').forEach(el => {
-      if (el) el.style.display = 'none';
+      if (el) el.remove();
     });
   }
 }
@@ -103,6 +106,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
 
 window.addEventListener('appinstalled', () => {
   deferredPrompt = null;
+  localStorage.setItem('pwaInstalled', 'true');
   checkPWAInstalled();
 });
 
@@ -1519,17 +1523,15 @@ function triggerDirectDownload(url, title) {
 
   showDownloadToast(`⬇️ Starting download: ${cleanTitle}`);
 
-  // Background window target=blank anchor so Mobile Chrome handles download without freezing current page
+  // Single-tab native download trigger without target=_blank (prevents Chrome auto-closing tab blocks)
   const a = document.createElement('a');
   a.href = proxyUrl;
-  a.target = '_blank';
-  a.rel = 'noopener';
   a.download = `${cleanTitle}.mp4`;
   document.body.appendChild(a);
   a.click();
   setTimeout(() => {
     try { document.body.removeChild(a); } catch(e){}
-  }, 300);
+  }, 500);
 }
 
 // --- Card download handler ---
@@ -1924,7 +1926,10 @@ async function openDetail(source, type, id, slug) {
     if (downloadOptions.length > 0) {
       const dlItems = downloadOptions.map((opt, i) => {
         const sizeStr = opt.size ? ` (${opt.size})` : '';
-        return `<button class="dl-option" data-url="${esc(opt.url)}" data-title="${esc(detail.title || '')}">${opt.label}${sizeStr}</button>`;
+        const rawUrl = opt.url;
+        const baseProxy = rawUrl.includes('/api/proxy') ? rawUrl : `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
+        const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(detail.title || 'video')}`;
+        return `<a href="${proxyUrl}" download="${esc(detail.title || 'video')}.mp4" class="dl-option" data-url="${esc(proxyUrl)}" data-title="${esc(detail.title || '')}">${opt.label}${sizeStr}</a>`;
       }).join('');
       downloadHtml = `
         <div class="download-section">

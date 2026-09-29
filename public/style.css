@@ -196,13 +196,21 @@ body {
   border: 1px solid var(--border);
 }
 
-/* Hide PWA Install buttons inside installed PWA app (standalone mode) */
-@media all and (display-mode: standalone), (display-mode: window-controls-overlay) {
-  .get-app-box,
+/* Hide PWA Install buttons inside installed PWA app or when installed */
+body.pwa-installed #topInstallBtn,
+body.pwa-installed #installAppBtn,
+body.pwa-installed .get-app-box,
+body.pwa-installed .btn-download {
+  display: none !important;
+}
+
+@media all and (display-mode: standalone), (display-mode: window-controls-overlay), (display-mode: minimal-ui), (display-mode: fullscreen) {
   #topInstallBtn,
   #installAppBtn,
+  .get-app-box,
   .btn-download,
-  .get-app-btn {
+  a[id="topInstallBtn"],
+  a[id="installAppBtn"] {
     display: none !important;
   }
 }
