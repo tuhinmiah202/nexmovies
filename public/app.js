@@ -2292,11 +2292,42 @@ function addPlayerControls(art, stream) {
     },
   });
 
-  // Mobile single-tap (Play/Pause) & double-tap gestures (-10s rewind left, Fullscreen center, +10s forward right)
+  // 3-Zone Click / Touch Gestures
+  // Left 33.3%  : Single Click = None | Double Click = -10s
+  // Center 33.3%: Single Click = Play/Pause | Double Click = Fullscreen
+  // Right 33.3% : Single Click = None | Double Click = +10s
   let tapTimer = null;
   let lastTapTime = 0;
   let lastTapX = 0;
+
+  function handleZoneClick(x, width, isDoubleTap) {
+    const leftBoundary = width / 3;
+    const rightBoundary = (width / 3) * 2;
+
+    if (isDoubleTap) {
+      if (x < leftBoundary) {
+        art.currentTime = Math.max(0, art.currentTime - 10);
+        art.notice.show = '⏪ -10s';
+      } else if (x > rightBoundary) {
+        art.currentTime = Math.min(art.duration || Infinity, art.currentTime + 10);
+        art.notice.show = '+10s ⏩';
+      } else {
+        art.fullscreen = !art.fullscreen;
+        art.notice.show = art.fullscreen ? '⛶ Fullscreen' : 'Exit Fullscreen';
+      }
+    } else {
+      // Single Click/Tap: ONLY toggle Play/Pause if clicked in the CENTER 1/3 zone!
+      if (x >= leftBoundary && x <= rightBoundary) {
+        art.toggle();
+      }
+    }
+  }
+
   if (art.template && art.template.$video) {
+    // Disable ArtPlayer default video click to enforce 3-zone rule
+    art.option.click = false;
+
+    // Mobile touch events
     art.template.$video.addEventListener('touchend', (e) => {
       const now = Date.now();
       const touch = e.changedTouches && e.changedTouches[0];
@@ -2306,31 +2337,37 @@ function addPlayerControls(art, stream) {
       const width = rect.width;
 
       if (now - lastTapTime < 300 && Math.abs(x - lastTapX) < 80) {
-        // DOUBLE TAP DETECTED
+        // DOUBLE TAP
         clearTimeout(tapTimer);
         tapTimer = null;
-        if (x < width * 0.35) {
-          art.currentTime = Math.max(0, art.currentTime - 10);
-          art.notice.show = '⏪ -10s';
-        } else if (x > width * 0.65) {
-          art.currentTime = Math.min(art.duration || Infinity, art.currentTime + 10);
-          art.notice.show = '+10s ⏩';
-        } else {
-          art.fullscreen = !art.fullscreen;
-          art.notice.show = art.fullscreen ? '⛶ Fullscreen' : 'Exit Fullscreen';
-        }
+        handleZoneClick(x, width, true);
         lastTapTime = 0;
       } else {
-        // SINGLE TAP DETECTED - Toggle Play / Pause
+        // SINGLE TAP
         lastTapTime = now;
         lastTapX = x;
         clearTimeout(tapTimer);
         tapTimer = setTimeout(() => {
-          art.toggle();
+          handleZoneClick(x, width, false);
           tapTimer = null;
-        }, 300);
+        }, 280);
       }
     });
+
+    // Desktop mouse clicks
+    art.template.$video.addEventListener('click', (e) => {
+      const rect = art.template.$video.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const width = rect.width;
+      const leftBoundary = width / 3;
+      const rightBoundary = (width / 3) * 2;
+
+      // Prevent play/pause toggle if clicked on left 1/3 or right 1/3
+      if (x < leftBoundary || x > rightBoundary) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
   }
 
   if (hasCaptions) {
