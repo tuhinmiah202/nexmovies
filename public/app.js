@@ -1991,34 +1991,12 @@ async function openDetail(source, type, id, slug) {
       btn.addEventListener('click', () => {
         const dubId = btn.dataset.dubId;
         const dubSlug = btn.dataset.dubSlug;
-        const langName = btn.textContent.trim();
-        if (!dubId || !dubSlug || btn.classList.contains('active')) return;
-
-        // Remember user's preferred audio language in localStorage
-        localStorage.setItem('preferredAudioLang', langName.toLowerCase());
-
+        if (!dubId || !dubSlug) return;
         stopCurrentTranscode();
         const navType = (currentDetail && currentDetail.type === 'tv') ? 'tv' : 'movie';
         openDetail('nexmovies', navType, dubId, dubSlug);
       });
     });
-
-    // Auto-select user's preferred audio language if available for this title
-    const savedPreferredLang = localStorage.getItem('preferredAudioLang');
-    if (savedPreferredLang && uniqueDubs.length > 1) {
-      const preferredDub = uniqueDubs.find(d => {
-        const name = (d.lanName || d.lanCode || '').toLowerCase();
-        return name.includes(savedPreferredLang) || savedPreferredLang.includes(name);
-      });
-      if (preferredDub && String(preferredDub.subjectId) !== String(detail.id || id || '')) {
-        setTimeout(() => {
-          const prefBtn = document.querySelector(`#dubTabs .dub-tab[data-dub-id="${preferredDub.subjectId}"]`);
-          if (prefBtn && !prefBtn.classList.contains('active')) {
-            prefBtn.click();
-          }
-        }, 150);
-      }
-    }
     if (detail.type === 'tv') {
       setPlayingEpisode(1);
     }
