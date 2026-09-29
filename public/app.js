@@ -2034,16 +2034,16 @@ async function openDetail(source, type, id, slug) {
           let resolutions = [];
           let qualityPlan = [];
 
-          if (dashPlayable) {
-            newSrc = dashEntry.url;
-            newType = 'application/dash+xml';
-            resolutions = (window.__dashManifest?.resolutions || []);
-            qualityPlan = resolutions.map(r => ({ height: parseInt(r.height) || 0, label: r.label || r.height + 'p', kind: 'dash', url: '' }));
-          } else if (mp4Qualities.length > 0) {
+          if (mp4Qualities.length > 0) {
             newSrc = mp4Qualities[0].url;
             newType = 'video/mp4';
             resolutions = mp4Qualities.map(q => ({ height: q.height, label: q.label, url: q.url }));
             qualityPlan = mp4Qualities.map(q => ({ ...q }));
+          } else if (dashPlayable) {
+            newSrc = dashEntry.url;
+            newType = 'application/dash+xml';
+            resolutions = (window.__dashManifest?.resolutions || []);
+            qualityPlan = resolutions.map(r => ({ height: parseInt(r.height) || 0, label: r.label || r.height + 'p', kind: 'dash', url: '' }));
           } else if (validHLS.length > 0) {
             newSrc = validHLS[0].url;
             newType = 'application/x-mpegURL';
@@ -2366,7 +2366,22 @@ function addPlayerControls(art, stream) {
     },
   });
 
-  // Mobile double-tap gesture for -10s / +10s skip
+  // Fullscreen control button placed FIRST on the right control bar for mobile visibility
+  art.controls.add({
+    name: 'mobile-fullscreen-btn',
+    position: 'right',
+    index: 1,
+    html: `<button class="art-icon art-icon-fullscreen-custom" title="Fullscreen" style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:none;border:none;cursor:pointer;color:#fff;">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+      </svg>
+    </button>`,
+    click: function() {
+      art.fullscreen = !art.fullscreen;
+    },
+  });
+
+  // Mobile double-tap gesture (-10s rewind left, Fullscreen center, +10s forward right)
   let lastTapTime = 0;
   let lastTapX = 0;
   if (art.template && art.template.$video) {
@@ -2385,6 +2400,9 @@ function addPlayerControls(art, stream) {
         } else if (x > width * 0.65) {
           art.currentTime = Math.min(art.duration || Infinity, art.currentTime + 10);
           art.notice.show = '+10s ⏩';
+        } else {
+          art.fullscreen = !art.fullscreen;
+          art.notice.show = art.fullscreen ? '⛶ Fullscreen' : 'Exit Fullscreen';
         }
         lastTapTime = 0;
       } else {
