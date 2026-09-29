@@ -1695,21 +1695,20 @@ async function openDetail(source, type, id, slug) {
     let resolutions = [];
     let qualityPlan = [];
 
-    if (dashPlayable) {
-      // Browser can decode this DASH — play it directly, ALL resolutions unlocked
-      playerSrc = dashEntry.url;
-      playerType = 'application/dash+xml';
-      formatLabel = dashIsHevc ? 'High efficiency (DASH/H.265)' : 'DASH Streaming';
-      resolutions = dashRes;
-      qualityPlan = dashRes.map(r => ({ height: r.height, label: r.label || r.height + 'p', kind: 'dash', url: '' }));
-    } else if (mp4Qualities.length > 0) {
-      // HEVC DASH not decodable here — default to best free H.264 MP4 so the
-      // screen is never black; locked qualities still offered via transcode
+    if (mp4Qualities.length > 0) {
+      // MP4 streams carry specific dubbed audio tracks (Hindi, Spanish, etc.)
       playerSrc = mp4Qualities[0].url;
       playerType = 'video/mp4';
       formatLabel = 'MP4 (H.264)';
       resolutions = mp4Qualities.map(q => ({ height: q.height, label: q.label, url: q.url }));
       qualityPlan = mp4Qualities.map(q => ({ ...q }));
+    } else if (dashPlayable) {
+      // Fallback to DASH streaming
+      playerSrc = dashEntry.url;
+      playerType = 'application/dash+xml';
+      formatLabel = dashIsHevc ? 'High efficiency (DASH/H.265)' : 'DASH Streaming';
+      resolutions = dashRes;
+      qualityPlan = dashRes.map(r => ({ height: r.height, label: r.label || r.height + 'p', kind: 'dash', url: '' }));
     } else if (validHLS.length > 0 && !dashEntry) {
       playerSrc = validHLS[0].url;
       playerType = 'application/x-mpegURL';

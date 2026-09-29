@@ -1646,12 +1646,11 @@ body.pwa-installed .btn-download {
 #artplayer-app .art-controls-right {
   display: flex !important;
   align-items: center !important;
-  gap: 4px !important;
+  gap: 6px !important;
 }
 
 #artplayer-app .art-controls-right .art-control-fullscreen,
-#artplayer-app .art-control-fullscreen,
-#artplayer-app .art-icon-fullscreen-custom {
+#artplayer-app .art-control-fullscreen {
   display: flex !important;
   visibility: visible !important;
   opacity: 1 !important;
@@ -1659,7 +1658,6 @@ body.pwa-installed .btn-download {
   height: 36px !important;
   align-items: center !important;
   justify-content: center !important;
-  order: -10 !important; /* Force fullscreen button to appear FIRST on the right bar */
 }
 
 .art-control-skip-btn {
