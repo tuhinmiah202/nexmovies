@@ -1987,9 +1987,9 @@ async function openDetail(source, type, id, slug) {
     // Bind season/episode buttons
     bindSeasonEpisodeButtons(source, type, id);
 
-    // Bind audio (dub) switcher — instant audio switch without page reload
+    // Bind audio (dub) switcher — reloads detail page with dub subject ID so all streams and episodes load in dubbed language
     document.querySelectorAll('#dubTabs .dub-tab').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         const dubId = btn.dataset.dubId;
         const dubSlug = btn.dataset.dubSlug;
         const langName = btn.textContent.trim();
@@ -1998,77 +1998,9 @@ async function openDetail(source, type, id, slug) {
         // Remember user's preferred audio language in localStorage
         localStorage.setItem('preferredAudioLang', langName.toLowerCase());
 
-        document.querySelectorAll('#dubTabs .dub-tab').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-
         stopCurrentTranscode();
-        if (window.__artPlayer) {
-          window.__artPlayer.notice.show = `Switching to ${langName} audio…`;
-        }
-
-        try {
-          const isMovie = detail.type === 'movie';
-          const se = isMovie ? 0 : 1;
-          const ep = isMovie ? 0 : 1;
-          const [streamData, captionData] = await Promise.all([
-            fetch(`/api/stream?subject_id=${dubId}&slug=${encodeURIComponent(dubSlug)}&se=${se}&ep=${ep}`).then(r => r.json()),
-            fetch(`/api/stream/${dubId}/captions?detail_path=${encodeURIComponent(dubSlug)}&se=${se}&ep=${ep}`).then(r => r.json()).catch(() => null)
-          ]);
-
-          const validSources = (streamData.sources || []).filter(s => s.url && s.url.length > 0);
-          const validDASH = (streamData.dash || []).filter(d => d.url && d.url.length > 0);
-          const validHLS = (streamData.hls || []).filter(h => h.url && h.url.length > 0);
-
-          const dashEntry = validDASH[0] || null;
-          const dashCodec = String(dashEntry ? (dashEntry.codecName || dashEntry.codec || dashEntry.format || '') : '').toLowerCase();
-          const dashIsHevc = /hevc|h265|hev1|hvc1/.test(dashCodec);
-          const dashPlayable = !!(dashEntry && (!dashIsHevc || canPlayHEVC()));
-
-          const mp4Qualities = validSources.map(s => {
-            const h = parseInt(s.resolutions) || parseInt(s.resolution) || 0;
-            return { height: h, label: (s.resolution || (h + 'p')), url: s.url, kind: 'mp4' };
-          }).filter(q => q.height > 0).sort((a, b) => b.height - a.height);
-
-          let newSrc = '';
-          let newType = '';
-          let resolutions = [];
-          let qualityPlan = [];
-
-          if (mp4Qualities.length > 0) {
-            newSrc = mp4Qualities[0].url;
-            newType = 'video/mp4';
-            resolutions = mp4Qualities.map(q => ({ height: q.height, label: q.label, url: q.url }));
-            qualityPlan = mp4Qualities.map(q => ({ ...q }));
-          } else if (dashPlayable) {
-            newSrc = dashEntry.url;
-            newType = 'application/dash+xml';
-            resolutions = (window.__dashManifest?.resolutions || []);
-            qualityPlan = resolutions.map(r => ({ height: parseInt(r.height) || 0, label: r.label || r.height + 'p', kind: 'dash', url: '' }));
-          } else if (validHLS.length > 0) {
-            newSrc = validHLS[0].url;
-            newType = 'application/x-mpegURL';
-          }
-
-          if (newSrc) {
-            window.__currentStream = {
-              src: newSrc,
-              type: newType,
-              mp4Sources: validSources,
-              dashUrl: dashEntry ? dashEntry.url : '',
-              hlsUrl: validHLS.length > 0 ? validHLS[0].url : '',
-              captionData: captionData,
-              resolutions: resolutions,
-              qualityPlan: qualityPlan,
-              dashCodec: dashCodec,
-              dashIsHevc: dashIsHevc,
-              hevcOK: canPlayHEVC(),
-              isEmbed: false,
-            };
-            initArtPlayer();
-          }
-        } catch (e) {
-          console.error('Audio switch error:', e);
-        }
+        const navType = (currentDetail && currentDetail.type === 'tv') ? 'tv' : 'movie';
+        openDetail('nexmovies', navType, dubId, dubSlug);
       });
     });
 
@@ -2082,7 +2014,9 @@ async function openDetail(source, type, id, slug) {
       if (preferredDub && String(preferredDub.subjectId) !== String(detail.id || id || '')) {
         setTimeout(() => {
           const prefBtn = document.querySelector(`#dubTabs .dub-tab[data-dub-id="${preferredDub.subjectId}"]`);
-          if (prefBtn) prefBtn.click();
+          if (prefBtn && !prefBtn.classList.contains('active')) {
+            prefBtn.click();
+          }
         }, 150);
       }
     }
@@ -2381,7 +2315,8 @@ function addPlayerControls(art, stream) {
     },
   });
 
-  // Mobile double-tap gesture (-10s rewind left, Fullscreen center, +10s forward right)
+  // Mobile single-tap (Play/Pause) & double-tap gestures (-10s rewind left, Fullscreen center, +10s forward right)
+  let tapTimer = null;
   let lastTapTime = 0;
   let lastTapX = 0;
   if (art.template && art.template.$video) {
@@ -2394,6 +2329,9 @@ function addPlayerControls(art, stream) {
       const width = rect.width;
 
       if (now - lastTapTime < 300 && Math.abs(x - lastTapX) < 80) {
+        // DOUBLE TAP DETECTED
+        clearTimeout(tapTimer);
+        tapTimer = null;
         if (x < width * 0.35) {
           art.currentTime = Math.max(0, art.currentTime - 10);
           art.notice.show = '⏪ -10s';
@@ -2406,8 +2344,14 @@ function addPlayerControls(art, stream) {
         }
         lastTapTime = 0;
       } else {
+        // SINGLE TAP DETECTED - Toggle Play / Pause
         lastTapTime = now;
         lastTapX = x;
+        clearTimeout(tapTimer);
+        tapTimer = setTimeout(() => {
+          art.toggle();
+          tapTimer = null;
+        }, 300);
       }
     });
   }
