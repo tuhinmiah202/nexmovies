@@ -80,13 +80,35 @@ async function playTranscodedQuality(height) {
   return false;
 }
 
-// --- PWA Installation ---
+// --- PWA Installation & Standalone Detection ---
 let deferredPrompt;
+
+function checkPWAInstalled() {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                       window.navigator.standalone === true ||
+                       document.referrer.includes('android-app://');
+
+  if (isStandalone) {
+    document.querySelectorAll('.get-app-box, #topInstallBtn, #installAppBtn, .btn-download, .get-app-btn').forEach(el => {
+      if (el) el.style.display = 'none';
+    });
+  }
+}
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  console.log('PWA Install prompt ready');
+  checkPWAInstalled();
 });
+
+window.addEventListener('appinstalled', () => {
+  deferredPrompt = null;
+  checkPWAInstalled();
+});
+
+document.addEventListener('DOMContentLoaded', checkPWAInstalled);
+window.addEventListener('load', checkPWAInstalled);
+checkPWAInstalled();
 
 async function triggerInstall() {
   if (!deferredPrompt) {
@@ -95,7 +117,9 @@ async function triggerInstall() {
   }
   deferredPrompt.prompt();
   const { outcome } = await deferredPrompt.userChoice;
-  console.log(`User response to the install prompt: ${outcome}`);
+  if (outcome === 'accepted') {
+    checkPWAInstalled();
+  }
   deferredPrompt = null;
 }
 

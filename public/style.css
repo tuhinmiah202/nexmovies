@@ -196,6 +196,17 @@ body {
   border: 1px solid var(--border);
 }
 
+/* Hide PWA Install buttons inside installed PWA app (standalone mode) */
+@media all and (display-mode: standalone), (display-mode: window-controls-overlay) {
+  .get-app-box,
+  #topInstallBtn,
+  #installAppBtn,
+  .btn-download,
+  .get-app-btn {
+    display: none !important;
+  }
+}
+
 .get-app-title {
   font-size: 13px;
   font-weight: 600;
