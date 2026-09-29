@@ -3,6 +3,8 @@ const fetch = require('node-fetch');
 const path = require('path');
 
 const app = express();
+app.set('trust proxy', true); // Trust reverse proxies (Fly.io/Render) for HTTPS headers
+
 // Fly.io usually expects 8080 or uses the PORT env variable
 const PORT = process.env.PORT || 8080;
 const API_URL = 'https://moviebox-api-steel.vercel.app';
@@ -15,10 +17,18 @@ const CDN_HEADERS = {
   'Referer': 'https://moviebox.ph/'
 };
 
+// Helper to construct secure HTTPS host URL for proxy links
+function getHostUrl(req) {
+  const host = req.get('host') || 'localhost:8080';
+  const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+  const protocol = isLocal ? req.protocol : 'https';
+  return `${protocol}://${host}`;
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- STABLE VIDEO PROXY WITH ULTRA-FAST 200ms RESPONSE & FULL DIRECT DOWNLOAD ---
+// --- STABLE VIDEO PROXY WITH HTTPS SSL SUPPORT & DIRECT DOWNLOAD ---
 app.get('/api/proxy', async (req, res) => {
   const { url, download, title, filename } = req.query;
   if (!url) return res.status(400).send('Missing url');
@@ -138,7 +148,7 @@ app.get('/api/stream', async (req, res) => {
     const hasHls = Array.isArray(data?.hls) && data.hls.length > 0;
 
     if (data && data.has_resource && (hasSources || hasDash || hasHls)) {
-      const host = `${req.protocol}://${req.get('host')}`;
+      const host = getHostUrl(req);
       if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
       if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
       if (data.hls) data.hls.forEach(h => { if (h.url) h.url = `${host}/api/proxy?url=${encodeURIComponent(h.url)}`; });
@@ -157,7 +167,7 @@ app.get('/api/stream', async (req, res) => {
     const hasDash = Array.isArray(play?.dash) && play.dash.length > 0;
 
     if (directData && play && (hasStreams || hasDash)) {
-      const host = `${req.protocol}://${req.get('host')}`;
+      const host = getHostUrl(req);
       const sources = (play.streams || []).map(src => ({ ...src, url: `${host}/api/proxy?url=${encodeURIComponent(src.url)}`, resolution: (src.resolutions || '') + 'p' }));
       const dash = (play.dash || []).map(d => ({ ...d, url: `${host}/api/proxy?url=${encodeURIComponent(d.url)}` }));
       return res.json({ subject_id, se: s, ep: e, has_resource: true, sources, dash, hls: play.hls || [] });
