@@ -459,6 +459,85 @@ async function loadPage() {
   hideLoading();
 }
 
+// --- Continue Watching Tracker ---
+function getContinueWatchingList() {
+  try {
+    const raw = localStorage.getItem('continueWatchingList');
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveContinueWatchingProgress(item) {
+  if (!item || !item.id || !item.title) return;
+  try {
+    let list = getContinueWatchingList();
+    list = list.filter(i => String(i.id) !== String(item.id));
+    list.unshift(item);
+    if (list.length > 15) list = list.slice(0, 15);
+    localStorage.setItem('continueWatchingList', JSON.stringify(list));
+  } catch (e) {}
+}
+
+function removeContinueWatchingItem(id) {
+  try {
+    let list = getContinueWatchingList();
+    list = list.filter(i => String(i.id) !== String(id));
+    localStorage.setItem('continueWatchingList', JSON.stringify(list));
+  } catch (e) {}
+}
+
+function renderContinueWatchingCard(item) {
+  const poster = item.poster
+    ? `<img src="${item.poster}" alt="${esc(item.title)}" loading="lazy">`
+    : `<div class="no-poster"><svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/></svg></div>`;
+
+  const percent = item.progress || 0;
+  const epLabel = (item.type === 'tv' && item.se) ? `S${item.se} E${item.ep || 1}` : '';
+
+  return `
+    <div class="movie-card continue-card" data-source="${item.source || 'nexmovies'}" data-type="${item.type || 'movie'}" data-id="${item.id}" data-slug="${item.slug}" data-seek="${item.currentTime || 0}" data-se="${item.se || 0}" data-ep="${item.ep || 0}">
+      <div class="card-poster">
+        ${poster}
+        ${epLabel ? `<span class="card-lang">${epLabel}</span>` : ''}
+        <div class="card-play-overlay">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" style="width: ${percent}%;"></div>
+        </div>
+        <button class="remove-cw-btn" data-cw-id="${item.id}" title="Remove from Continue Watching">✕</button>
+      </div>
+      <div class="card-info">
+        <div class="card-title" title="${esc(item.title)}">${esc(item.title)}</div>
+        <div class="card-meta">${percent}% watched</div>
+      </div>
+    </div>`;
+}
+
+function renderContinueWatchingRow() {
+  const list = getContinueWatchingList().filter(i => i.progress < 95 && i.currentTime > 5);
+  if (!list.length) return '';
+
+  const cardsHtml = list.map(renderContinueWatchingCard).join('');
+  return `
+    <div class="movie-row continue-watching-row" id="continueWatchingRow">
+      <div class="row-header">
+        <h2 class="row-title">⏯️ Continue Watching</h2>
+      </div>
+      <div class="row-wrap">
+        <div class="row-scroll">${cardsHtml}</div>
+        <button class="row-arrow row-arrow-left" aria-label="Previous items">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+        </button>
+        <button class="row-arrow row-arrow-right" aria-label="Next items">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/></svg>
+        </button>
+      </div>
+    </div>`;
+}
+
 // --- Home page with sectioned layout ---
 async function loadHomePage() {
   // Show light skeletons while we fetch data to avoid blank content
@@ -539,6 +618,9 @@ async function loadHomePage() {
         <div class="hero-dots">${dotsHtml}</div>` : ''}
       </div>`;
   }
+
+  // Continue Watching row
+  html += renderContinueWatchingRow();
 
   // Render each real section as a horizontal row with overlay carousel arrows
   for (const section of sections) {
@@ -1471,10 +1553,34 @@ function renderCard(movie) {
 }
 
 function attachCardListeners() {
-  document.querySelectorAll('.movie-card').forEach(card => {
+  document.querySelectorAll('.movie-card:not(.continue-card)').forEach(card => {
     card.onclick = (e) => {
       // Don't open detail if download button was clicked
       if (e.target.closest('[data-action="download"]')) return;
+      openDetail(card.dataset.source, card.dataset.type, card.dataset.id, card.dataset.slug);
+    };
+  });
+
+  // Handle click on Continue Watching cards with seek resume
+  document.querySelectorAll('.continue-card').forEach(card => {
+    card.onclick = (e) => {
+      if (e.target.closest('.remove-cw-btn')) {
+        e.stopPropagation();
+        const id = e.target.closest('.remove-cw-btn').dataset.cwId;
+        removeContinueWatchingItem(id);
+        const row = document.getElementById('continueWatchingRow');
+        if (row) {
+          const list = getContinueWatchingList().filter(i => i.progress < 95 && i.currentTime > 5);
+          if (!list.length) row.remove();
+          else card.remove();
+        }
+        return;
+      }
+
+      const seek = parseFloat(card.dataset.seek) || 0;
+      if (seek > 5) {
+        window.__pendingSeek = seek;
+      }
       openDetail(card.dataset.source, card.dataset.type, card.dataset.id, card.dataset.slug);
     };
   });
@@ -2233,6 +2339,35 @@ function initArtPlayer() {
       try { art.currentTime = window.__pendingSeek; } catch (e) {}
       window.__pendingSeek = 0;
     }
+  });
+
+  // Record watch progress for Continue Watching
+  let cwThrottleTimer = null;
+  art.on('video:timeupdate', () => {
+    if (!currentDetail || !art.duration || art.currentTime < 5) return;
+    if (cwThrottleTimer) return;
+    cwThrottleTimer = setTimeout(() => {
+      cwThrottleTimer = null;
+      const progress = Math.min(100, Math.round((art.currentTime / art.duration) * 100));
+      if (progress >= 95) {
+        removeContinueWatchingItem(currentDetail.id);
+      } else {
+        saveContinueWatchingProgress({
+          id: currentDetail.id,
+          slug: currentDetail.slug,
+          title: currentDetail.title,
+          poster: currentDetail.poster,
+          type: currentDetail.type || 'movie',
+          source: currentDetail.source || 'nexmovies',
+          currentTime: Math.floor(art.currentTime),
+          duration: Math.floor(art.duration),
+          progress: progress,
+          se: window.__currentStream?.se || 0,
+          ep: window.__currentStream?.ep || 0,
+          updatedAt: Date.now()
+        });
+      }
+    }, 3000);
   });
 }
 
