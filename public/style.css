@@ -1636,6 +1636,43 @@ body.pwa-installed .btn-download {
 .dub-tabs { margin-bottom: 14px; }
 .dub-tab { text-transform: none !important; }
 
+/* --- ArtPlayer Custom Control Styles & Mobile Fullscreen Fix --- */
+#artplayer-app .art-controls-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+#artplayer-app .art-controls-right .art-control-fullscreen,
+#artplayer-app .art-control-fullscreen {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  width: 36px !important;
+  height: 36px !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.art-control-skip-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  opacity: 0.9;
+  transition: opacity 0.2s, transform 0.15s;
+}
+.art-control-skip-btn:hover {
+  opacity: 1;
+  transform: scale(1.1);
+  color: #1db954;
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1200px) {
   .topbar-actions { display: none; }

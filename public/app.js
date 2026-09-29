@@ -1987,18 +1987,105 @@ async function openDetail(source, type, id, slug) {
     // Bind season/episode buttons
     bindSeasonEpisodeButtons(source, type, id);
 
-    // Bind audio (dub) switcher — each dub is its own subject upstream,
-    // so switching reloads the detail page with the dub's subject/slug.
+    // Bind audio (dub) switcher — instant audio switch without page reload
     document.querySelectorAll('#dubTabs .dub-tab').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const dubId = btn.dataset.dubId;
         const dubSlug = btn.dataset.dubSlug;
-        if (!dubId || !dubSlug || String(dubId) === String(id)) return;
+        const langName = btn.textContent.trim();
+        if (!dubId || !dubSlug || btn.classList.contains('active')) return;
+
+        // Remember user's preferred audio language in localStorage
+        localStorage.setItem('preferredAudioLang', langName.toLowerCase());
+
+        document.querySelectorAll('#dubTabs .dub-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
         stopCurrentTranscode();
-        const navType = (currentDetail && currentDetail.type === 'tv') ? 'tv' : 'movie';
-        openDetail('moviebox', navType, dubId, dubSlug);
+        if (window.__artPlayer) {
+          window.__artPlayer.notice.show = `Switching to ${langName} audio…`;
+        }
+
+        try {
+          const isMovie = detail.type === 'movie';
+          const se = isMovie ? 0 : 1;
+          const ep = isMovie ? 0 : 1;
+          const [streamData, captionData] = await Promise.all([
+            fetch(`/api/stream?subject_id=${dubId}&slug=${encodeURIComponent(dubSlug)}&se=${se}&ep=${ep}`).then(r => r.json()),
+            fetch(`/api/stream/${dubId}/captions?detail_path=${encodeURIComponent(dubSlug)}&se=${se}&ep=${ep}`).then(r => r.json()).catch(() => null)
+          ]);
+
+          const validSources = (streamData.sources || []).filter(s => s.url && s.url.length > 0);
+          const validDASH = (streamData.dash || []).filter(d => d.url && d.url.length > 0);
+          const validHLS = (streamData.hls || []).filter(h => h.url && h.url.length > 0);
+
+          const dashEntry = validDASH[0] || null;
+          const dashCodec = String(dashEntry ? (dashEntry.codecName || dashEntry.codec || dashEntry.format || '') : '').toLowerCase();
+          const dashIsHevc = /hevc|h265|hev1|hvc1/.test(dashCodec);
+          const dashPlayable = !!(dashEntry && (!dashIsHevc || canPlayHEVC()));
+
+          const mp4Qualities = validSources.map(s => {
+            const h = parseInt(s.resolutions) || parseInt(s.resolution) || 0;
+            return { height: h, label: (s.resolution || (h + 'p')), url: s.url, kind: 'mp4' };
+          }).filter(q => q.height > 0).sort((a, b) => b.height - a.height);
+
+          let newSrc = '';
+          let newType = '';
+          let resolutions = [];
+          let qualityPlan = [];
+
+          if (dashPlayable) {
+            newSrc = dashEntry.url;
+            newType = 'application/dash+xml';
+            resolutions = (window.__dashManifest?.resolutions || []);
+            qualityPlan = resolutions.map(r => ({ height: parseInt(r.height) || 0, label: r.label || r.height + 'p', kind: 'dash', url: '' }));
+          } else if (mp4Qualities.length > 0) {
+            newSrc = mp4Qualities[0].url;
+            newType = 'video/mp4';
+            resolutions = mp4Qualities.map(q => ({ height: q.height, label: q.label, url: q.url }));
+            qualityPlan = mp4Qualities.map(q => ({ ...q }));
+          } else if (validHLS.length > 0) {
+            newSrc = validHLS[0].url;
+            newType = 'application/x-mpegURL';
+          }
+
+          if (newSrc) {
+            window.__currentStream = {
+              src: newSrc,
+              type: newType,
+              mp4Sources: validSources,
+              dashUrl: dashEntry ? dashEntry.url : '',
+              hlsUrl: validHLS.length > 0 ? validHLS[0].url : '',
+              captionData: captionData,
+              resolutions: resolutions,
+              qualityPlan: qualityPlan,
+              dashCodec: dashCodec,
+              dashIsHevc: dashIsHevc,
+              hevcOK: canPlayHEVC(),
+              isEmbed: false,
+            };
+            initArtPlayer();
+          }
+        } catch (e) {
+          console.error('Audio switch error:', e);
+        }
       });
     });
+
+    // Auto-select user's preferred audio language if available for this title
+    const savedPreferredLang = localStorage.getItem('preferredAudioLang');
+    if (savedPreferredLang && uniqueDubs.length > 1) {
+      const preferredDub = uniqueDubs.find(d => {
+        const name = (d.lanName || d.lanCode || '').toLowerCase();
+        return name.includes(savedPreferredLang) || savedPreferredLang.includes(name);
+      });
+      if (preferredDub && String(preferredDub.subjectId) !== String(detail.id || id || '')) {
+        setTimeout(() => {
+          const prefBtn = document.querySelector(`#dubTabs .dub-tab[data-dub-id="${preferredDub.subjectId}"]`);
+          if (prefBtn) prefBtn.click();
+        }, 150);
+      }
+    }
     if (detail.type === 'tv') {
       setPlayingEpisode(1);
     }
@@ -2244,6 +2331,68 @@ function addPlayerControls(art, stream) {
   const resolutions = stream.resolutions || [];
   const captions = (stream.captionData && stream.captionData.captions) || [];
   const hasCaptions = captions.length > 0;
+
+  // 10-Second Backward (-10s) control next to Play/Pause on the left
+  art.controls.add({
+    name: 'skip-backward-10',
+    position: 'left',
+    index: 1,
+    html: `<button class="art-control-skip-btn" title="-10s">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+        <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h7l-3.62-3.62c1.39-1.22 3.16-1.98 5.12-1.98 3.82 0 7.03 2.65 7.82 6.22l2.42-.64C19.72 11.23 15.54 8 12.5 8z"/>
+        <text x="12" y="16" font-size="7" font-weight="bold" text-anchor="middle" fill="currentColor">10</text>
+      </svg>
+    </button>`,
+    click: function() {
+      art.currentTime = Math.max(0, art.currentTime - 10);
+      art.notice.show = '⏪ -10s';
+    },
+  });
+
+  // 10-Second Forward (+10s) control next to Play/Pause on the left
+  art.controls.add({
+    name: 'skip-forward-10',
+    position: 'left',
+    index: 3,
+    html: `<button class="art-control-skip-btn" title="+10s">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+        <path d="M11.5 8c2.65 0 5.05.99 6.9 2.6L22 7v9h-7l3.62-3.62c-1.39-1.22-3.16-1.98-5.12-1.98-3.82 0-7.03 2.65-7.82 6.22l-2.42-.64C4.28 11.23 8.46 8 11.5 8z"/>
+        <text x="12" y="16" font-size="7" font-weight="bold" text-anchor="middle" fill="currentColor">10</text>
+      </svg>
+    </button>`,
+    click: function() {
+      art.currentTime = Math.min(art.duration || Infinity, art.currentTime + 10);
+      art.notice.show = '+10s ⏩';
+    },
+  });
+
+  // Mobile double-tap gesture for -10s / +10s skip
+  let lastTapTime = 0;
+  let lastTapX = 0;
+  if (art.template && art.template.$video) {
+    art.template.$video.addEventListener('touchend', (e) => {
+      const now = Date.now();
+      const touch = e.changedTouches && e.changedTouches[0];
+      if (!touch) return;
+      const rect = art.template.$video.getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+      const width = rect.width;
+
+      if (now - lastTapTime < 300 && Math.abs(x - lastTapX) < 80) {
+        if (x < width * 0.35) {
+          art.currentTime = Math.max(0, art.currentTime - 10);
+          art.notice.show = '⏪ -10s';
+        } else if (x > width * 0.65) {
+          art.currentTime = Math.min(art.duration || Infinity, art.currentTime + 10);
+          art.notice.show = '+10s ⏩';
+        }
+        lastTapTime = 0;
+      } else {
+        lastTapTime = now;
+        lastTapX = x;
+      }
+    });
+  }
 
   if (hasCaptions) {
     const langMap = {};
