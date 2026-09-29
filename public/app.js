@@ -1926,10 +1926,7 @@ async function openDetail(source, type, id, slug) {
     if (downloadOptions.length > 0) {
       const dlItems = downloadOptions.map((opt, i) => {
         const sizeStr = opt.size ? ` (${opt.size})` : '';
-        const rawUrl = opt.url;
-        const baseProxy = rawUrl.includes('/api/proxy') ? rawUrl : `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
-        const proxyUrl = `${baseProxy}&download=1&title=${encodeURIComponent(detail.title || 'video')}`;
-        return `<a href="${proxyUrl}" download="${esc(detail.title || 'video')}.mp4" class="dl-option" data-url="${esc(proxyUrl)}" data-title="${esc(detail.title || '')}">${opt.label}${sizeStr}</a>`;
+        return `<button class="dl-option" data-url="${esc(opt.url)}" data-title="${esc(detail.title || '')}">${opt.label}${sizeStr}</button>`;
       }).join('');
       downloadHtml = `
         <div class="download-section">
@@ -2016,6 +2013,7 @@ async function openDetail(source, type, id, slug) {
       });
       dlDropdown.querySelectorAll('.dl-option').forEach(opt => {
         opt.addEventListener('click', (e) => {
+          e.preventDefault();
           e.stopPropagation();
           const url = opt.dataset.url;
           const title = opt.dataset.title || currentDetail?.title || 'video';
