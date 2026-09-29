@@ -18,18 +18,22 @@ const CDN_HEADERS = {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- STABLE VIDEO PROXY WITH FAST RANGE HEADERS & DIRECT DOWNLOAD SUPPORT ---
+// --- STABLE VIDEO PROXY WITH HTTP 200 DIRECT DOWNLOAD & HTTP 206 STREAMING ---
 app.get('/api/proxy', async (req, res) => {
   const { url, download, title, filename } = req.query;
   if (!url) return res.status(400).send('Missing url');
 
+  const isDownload = download === '1' || !!filename || !!title;
+
   try {
     const proxyHeaders = { ...CDN_HEADERS };
-    // Always supply Range header for ultra-fast 100ms CDN header responses
-    proxyHeaders['Range'] = req.headers.range || 'bytes=0-';
+    // Only pass Range header if explicitly requested by video player (seeking) AND NOT downloading
+    if (req.headers.range && !isDownload) {
+      proxyHeaders['Range'] = req.headers.range;
+    }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    const timeout = setTimeout(() => controller.abort(), 30000);
 
     const response = await fetch(url, {
       headers: proxyHeaders,
@@ -47,11 +51,10 @@ app.get('/api/proxy', async (req, res) => {
     res.setHeader('Access-Control-Expose-Headers', '*');
 
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
-    if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
+    if (response.headers.get('content-range') && !isDownload) res.setHeader('Content-Range', response.headers.get('content-range'));
     res.setHeader('Accept-Ranges', 'bytes');
 
-    // Force direct file download on all browsers
-    if (download === '1' || filename || title) {
+    if (isDownload) {
       const rawName = (filename || title || 'video').toString();
       const safeAsciiName = rawName.replace(/["\r\n\t]/g, '').replace(/[^\x20-\x7E]/g, '').trim() || 'video';
       const asciiNameWithExt = safeAsciiName.toLowerCase().endsWith('.mp4') ? safeAsciiName : `${safeAsciiName}.mp4`;
@@ -59,11 +62,11 @@ app.get('/api/proxy', async (req, res) => {
 
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${asciiNameWithExt}"; filename*=UTF-8''${encodedUtf8Name}`);
+      res.status(200); // Always HTTP 200 OK for full file downloads
     } else {
       if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
+      if (response.status === 206) res.status(206);
     }
-
-    if (response.status === 206) res.status(206);
 
     // Free fetch stream immediately when client disconnects to prevent Render hanging/RAM overload
     res.on('close', () => {
