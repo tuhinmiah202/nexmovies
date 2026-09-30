@@ -337,11 +337,100 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// --- API Routing & Resolution for Static Hosts (Cloudflare Pages/Workers, Netlify, etc.) ---
+const BACKEND_API_BASE = 'https://moviebox-api-steel.vercel.app';
+
+function resolveApiUrl(path) {
+  if (!path) return path;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+
+  // On static hosts without Express backend, resolve relative /api/* paths directly to Vercel API
+  const isStaticHost = window.location.hostname.includes('workers.dev') ||
+                       window.location.hostname.includes('pages.dev') ||
+                       window.location.hostname.includes('netlify.app') ||
+                       window.location.hostname.includes('vercel.app') ||
+                       window.location.hostname.includes('github.io');
+
+  if (!isStaticHost) return path;
+
+  if (path.startsWith('/api/home/categories')) return `${BACKEND_API_BASE}/home/categories`;
+  if (path.startsWith('/api/home')) return `${BACKEND_API_BASE}/home`;
+  if (path.startsWith('/api/recent-movies')) return `${BACKEND_API_BASE}/movies?page=1`;
+  if (path.startsWith('/api/detail')) {
+    const params = new URLSearchParams(path.split('?')[1] || '');
+    const slug = params.get('slug') || '';
+    return `${BACKEND_API_BASE}/detail/${encodeURIComponent(slug)}`;
+  }
+  if (path.startsWith('/api/stream/')) {
+    const parts = path.split('?');
+    const pathParts = parts[0].split('/');
+    const id = pathParts[3];
+    const isCaptions = parts[0].includes('/captions');
+    if (isCaptions) {
+      return `${BACKEND_API_BASE}/api/stream/${id}/captions?${parts[1] || ''}`;
+    }
+    return `${BACKEND_API_BASE}/api/stream/${id}?${parts[1] || ''}`;
+  }
+  if (path.startsWith('/api/stream?')) {
+    const params = new URLSearchParams(path.split('?')[1] || '');
+    const subjectId = params.get('subject_id') || '';
+    const slug = params.get('slug') || '';
+    const se = params.get('se') || '0';
+    const ep = params.get('ep') || '0';
+    return `${BACKEND_API_BASE}/api/stream/${subjectId}?detail_path=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`;
+  }
+  if (path.startsWith('/api/search/suggest')) {
+    const q = new URLSearchParams(path.split('?')[1] || '').get('q') || '';
+    return `${BACKEND_API_BASE}/search/suggest?q=${encodeURIComponent(q)}`;
+  }
+  if (path.startsWith('/api/search')) {
+    const q = new URLSearchParams(path.split('?')[1] || '').get('q') || '';
+    return `${BACKEND_API_BASE}/search?q=${encodeURIComponent(q)}`;
+  }
+  if (path.startsWith('/api/movies')) return `${BACKEND_API_BASE}${path.replace('/api', '')}`;
+  if (path.startsWith('/api/tv-series')) return `${BACKEND_API_BASE}${path.replace('/api', '')}`;
+  if (path.startsWith('/api/animation')) return `${BACKEND_API_BASE}${path.replace('/api', '')}`;
+  if (path.startsWith('/api/ranking')) return `${BACKEND_API_BASE}${path.replace('/api', '')}`;
+  if (path.startsWith('/api/top-imdb')) return `${BACKEND_API_BASE}${path.replace('/api', '')}`;
+  if (path.startsWith('/api/dubbed')) return `${BACKEND_API_BASE}${path.replace('/api', '')}`;
+  if (path.startsWith('/api/genre')) return `${BACKEND_API_BASE}${path.replace('/api', '')}`;
+  if (path.startsWith('/api/section')) {
+    const params = new URLSearchParams(path.split('?')[1] || '');
+    const name = params.get('name') || '';
+    return `${BACKEND_API_BASE}/home`;
+  }
+
+  return path;
+}
+
 // --- Fetch ---
 async function apiFetch(url) {
   try {
-    const res = await fetch(url);
-    return await res.json();
+    const fullUrl = resolveApiUrl(url);
+    const res = await fetch(fullUrl);
+    const data = await res.json();
+
+    if (url.startsWith('/api/detail')) {
+      const s = data?.data?.subject;
+      if (s) {
+        return {
+          id: s.subjectId, title: s.title, poster: s.cover?.url, backdrop: s.stills?.url || s.cover?.url,
+          year: s.releaseDate?.substring(0,4), rating: s.imdbRatingValue, overview: s.description,
+          genres: s.genre ? s.genre.split(',').map(g=>g.trim()) : [], type: s.subjectType === 2 ? 'tv' : 'movie',
+          slug: s.detailPath, source: 'nexmovies', resource: data.data.resource || {}, dubs: s.dubs || []
+        };
+      }
+    }
+    if (url.startsWith('/api/search?')) {
+      return { movies: (data.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'nexmovies' })) };
+    }
+    if (url.startsWith('/api/section?')) {
+      const target = (new URLSearchParams(url.split('?')[1] || '').get('name') || '').toLowerCase();
+      const sec = (data.sections || []).find(s => s.section && s.section.toLowerCase().includes(target));
+      return { title: sec?.section || 'Section', items: sec?.items || [], hasMore: false };
+    }
+
+    return data;
   } catch (e) {
     console.error('API error:', url, e);
     return { movies: [] };
@@ -1729,13 +1818,13 @@ async function openDetail(source, type, id, slug) {
   contentArea.innerHTML = '';
 
   try {
-    const detail = await fetch(`/api/detail?type=${type}&id=${id}&source=${source}&slug=${slug || ''}`).then(r => r.json());
+    const detail = await apiFetch(`/api/detail?type=${type}&id=${id}&source=${source}&slug=${slug || ''}`);
     currentDetail = detail;
 
     // Get cast
     let cast = [];
     try {
-      const castRes = await fetch(`/api/cast?type=${type === 'tv' ? 'tv' : 'movie'}&id=${id}`);
+      const castRes = await fetch(resolveApiUrl(`/api/cast?type=${type === 'tv' ? 'tv' : 'movie'}&id=${id}`));
       if (castRes.ok) {
         const castData = await castRes.json();
         cast = castData.cast || [];
@@ -1751,10 +1840,10 @@ async function openDetail(source, type, id, slug) {
       const se = isMovie ? 0 : 1;
       const ep = isMovie ? 0 : 1;
       try {
-        streamData = await fetch(`/api/stream?subject_id=${id}&slug=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`).then(r => r.json());
+        streamData = await fetch(resolveApiUrl(`/api/stream?subject_id=${id}&slug=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`)).then(r => r.json());
       } catch (e) {}
       try {
-        captionData = await fetch(`/api/stream/${id}/captions?detail_path=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`).then(r => r.json());
+        captionData = await fetch(resolveApiUrl(`/api/stream/${id}/captions?detail_path=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`)).then(r => r.json());
       } catch (e) {}
     }
 
