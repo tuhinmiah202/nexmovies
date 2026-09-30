@@ -3033,8 +3033,8 @@ function loadEpisode(btn, source, id, getSeason, setEp) {
     stopCurrentTranscode();
 
     Promise.all([
-      fetch(`/api/stream?subject_id=${id}&slug=${encodeURIComponent(slug)}&se=${season}&ep=${ep}`).then(r => r.json()),
-      fetch(`/api/stream/${id}/captions?detail_path=${encodeURIComponent(slug)}&se=${season}&ep=${ep}`).then(r => r.json()).catch(() => null)
+      fetch(resolveApiUrl(`/api/stream?subject_id=${id}&slug=${encodeURIComponent(slug)}&se=${season}&ep=${ep}`)).then(r => r.json()),
+      fetch(resolveApiUrl(`/api/stream/${id}/captions?detail_path=${encodeURIComponent(slug)}&se=${season}&ep=${ep}`)).then(r => r.json()).catch(() => null)
     ]).then(async ([streamData, captionData]) => {
       const validSources = (streamData.sources || []).filter(s => s.url && s.url.length > 0);
       const validDASH = (streamData.dash || []).filter(d => d.url && d.url.length > 0);
