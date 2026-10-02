@@ -2220,19 +2220,61 @@ async function openDetail(source, type, id, slug) {
     // Bind season/episode buttons
     bindSeasonEpisodeButtons(source, type, id);
 
-    // Bind audio (dub) switcher — reloads detail page with dub subject ID so all streams and episodes load in dubbed language
+    // Bind audio (dub) switcher — saves preferred language and reloads detail page with dub subject ID
     document.querySelectorAll('#dubTabs .dub-tab').forEach(btn => {
       btn.addEventListener('click', () => {
         const dubId = btn.dataset.dubId;
         const dubSlug = btn.dataset.dubSlug;
+        const langText = btn.textContent.trim().toLowerCase();
         if (!dubId || !dubSlug) return;
+
+        if (langText) {
+          localStorage.setItem('preferredAudioLang', langText);
+        }
+
         stopCurrentTranscode();
         const navType = (currentDetail && currentDetail.type === 'tv') ? 'tv' : 'movie';
         openDetail('nexmovies', navType, dubId, dubSlug);
       });
     });
+
+    // Auto-select user's preferred audio language if available for this title
+    const savedPreferredLang = localStorage.getItem('preferredAudioLang');
+    if (savedPreferredLang && uniqueDubs.length > 1 && !window.__autoDubSelected) {
+      const preferredDub = uniqueDubs.find(d => {
+        const name = (d.lanName || d.lanCode || '').toLowerCase();
+        return name.includes(savedPreferredLang) || savedPreferredLang.includes(name);
+      });
+      if (preferredDub && String(preferredDub.subjectId) !== String(detail.id || id || '')) {
+        window.__autoDubSelected = true;
+        setTimeout(() => {
+          window.__autoDubSelected = false;
+          openDetail('nexmovies', type === 'tv' ? 'tv' : 'movie', preferredDub.subjectId, preferredDub.detailPath);
+        }, 100);
+      }
+    }
+
+    // Auto-resume last watched episode for TV series from Continue Watching
     if (detail.type === 'tv') {
-      setPlayingEpisode(1);
+      const cwList = getContinueWatchingList();
+      const savedShow = cwList.find(i => String(i.id) === String(id) || String(i.slug) === String(slug));
+      if (savedShow && savedShow.se && savedShow.ep) {
+        const targetSeason = savedShow.se;
+        const targetEp = savedShow.ep;
+        if (savedShow.currentTime > 5) {
+          window.__pendingSeek = savedShow.currentTime;
+        }
+        setTimeout(() => {
+          const sTab = document.querySelector(`.season-tab[data-season="${targetSeason}"]`);
+          if (sTab) sTab.click();
+          setTimeout(() => {
+            const epBtn = document.querySelector(`.ep-btn[data-ep="${targetEp}"]`);
+            if (epBtn) epBtn.click();
+          }, 150);
+        }, 100);
+      } else {
+        setPlayingEpisode(1);
+      }
     }
 
     // Bind download button + dropdown
