@@ -422,7 +422,10 @@ async function apiFetch(url) {
       }
     }
     if (url.startsWith('/api/search?')) {
-      return { movies: (data.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'nexmovies' })) };
+      if (Array.isArray(data.movies)) {
+        return data;
+      }
+      return { movies: (data.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'nexmovies', type: it.subject_type === 2 ? 'tv' : 'movie' })) };
     }
     if (url.startsWith('/api/section?')) {
       const target = (new URLSearchParams(url.split('?')[1] || '').get('name') || '').toLowerCase();
