@@ -170,10 +170,61 @@ app.get('/api/stream', async (req, res) => {
 });
 
 app.get('/api/search', async (req, res) => {
+  const q = req.query.q || '';
+  if (!q) return res.json({ movies: [] });
+
+  let movieboxItems = [];
+  let tmdbItems = [];
+
+  // 1. Fetch from Moviebox
   try {
-    const r = await fetch(`${API_URL}/search?q=${encodeURIComponent(req.query.q || '')}`).then(res => res.json());
-    res.json({ movies: (r.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'nexmovies' })) });
-  } catch(e) { res.json({ movies: [] }); }
+    const r = await fetch(`${API_URL}/search?q=${encodeURIComponent(q)}`).then(res => res.json());
+    movieboxItems = (r.items || []).map(it => ({
+      id: it.subject_id,
+      title: it.name,
+      poster: it.poster_url,
+      slug: it.slug,
+      source: 'nexmovies',
+      type: it.subject_type === 2 ? 'tv' : 'movie'
+    }));
+  } catch (e) {}
+
+  // 2. Fetch from TMDB for global movies/shows not on Moviebox
+  try {
+    const tmdbRes = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=15d2166f21f17216a3e2005f7701a0a5&query=${encodeURIComponent(q)}`).then(res => res.json());
+    tmdbItems = (tmdbRes.results || []).filter(it => (it.media_type === 'movie' || it.media_type === 'tv') && it.poster_path).map(it => ({
+      id: String(it.id),
+      title: it.title || it.name || '',
+      poster: `https://image.tmdb.org/t/p/w500${it.poster_path}`,
+      slug: (it.title || it.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      source: 'tmdb',
+      type: it.media_type,
+      year: (it.release_date || it.first_air_date || '').substring(0, 4),
+      rating: it.vote_average ? String(it.vote_average.toFixed(1)) : ''
+    }));
+  } catch (e) {}
+
+  // Merge items without duplicates (prefer Moviebox items first)
+  const seenTitles = new Set();
+  const combined = [];
+
+  for (const m of movieboxItems) {
+    const key = m.title.toLowerCase().trim();
+    if (!seenTitles.has(key)) {
+      seenTitles.add(key);
+      combined.push(m);
+    }
+  }
+
+  for (const t of tmdbItems) {
+    const key = t.title.toLowerCase().trim();
+    if (!seenTitles.has(key)) {
+      seenTitles.add(key);
+      combined.push(t);
+    }
+  }
+
+  res.json({ movies: combined });
 });
 
 app.get('/api/search/suggest', async (req, res) => {

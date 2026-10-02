@@ -17,6 +17,27 @@ export default {
     if (url.pathname.startsWith('/api/')) {
       let targetUrl = '';
 
+      if (url.pathname === '/api/search') {
+        const q = url.searchParams.get('q') || '';
+        let mbItems = [];
+        let tmdbItems = [];
+        try {
+          const r = await fetch(`https://moviebox-api-steel.vercel.app/search?q=${encodeURIComponent(q)}`).then(res => res.json());
+          mbItems = (r.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'nexmovies', type: it.subject_type === 2 ? 'tv' : 'movie' }));
+        } catch(e) {}
+        try {
+          const tmdbRes = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=15d2166f21f17216a3e2005f7701a0a5&query=${encodeURIComponent(q)}`).then(res => res.json());
+          tmdbItems = (tmdbRes.results || []).filter(it => (it.media_type === 'movie' || it.media_type === 'tv') && it.poster_path).map(it => ({
+            id: String(it.id), title: it.title || it.name || '', poster: `https://image.tmdb.org/t/p/w500${it.poster_path}`, slug: (it.title || it.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'), source: 'tmdb', type: it.media_type
+          }));
+        } catch(e) {}
+        const seen = new Set();
+        const combined = [];
+        for (const m of mbItems) { const k = m.title.toLowerCase().trim(); if (!seen.has(k)) { seen.add(k); combined.push(m); } }
+        for (const t of tmdbItems) { const k = t.title.toLowerCase().trim(); if (!seen.has(k)) { seen.add(k); combined.push(t); } }
+        return new Response(JSON.stringify({ movies: combined }), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+      }
+
       if (url.pathname.startsWith('/api/home/categories')) {
         targetUrl = 'https://moviebox-api-steel.vercel.app/home/categories';
       } else if (url.pathname.startsWith('/api/home')) {
