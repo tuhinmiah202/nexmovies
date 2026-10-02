@@ -1825,6 +1825,14 @@ async function openDetail(source, type, id, slug) {
     if (source === 'tmdb') {
       try {
         const tmdbData = await fetch(`https://api.themoviedb.org/3/${type === 'tv' ? 'tv' : 'movie'}/${id}?api_key=2dca580c2a14b55200e784d157207b4d`).then(r => r.json());
+        const tmdbSeasons = [];
+        if (type === 'tv' && tmdbData.seasons) {
+          tmdbData.seasons.forEach(s => {
+            if (s.season_number > 0) {
+              tmdbSeasons.push({ se: s.season_number, maxEp: s.episode_count || 10 });
+            }
+          });
+        }
         detail = {
           id: id,
           title: tmdbData.title || tmdbData.name || 'Untitled',
@@ -1836,7 +1844,8 @@ async function openDetail(source, type, id, slug) {
           genres: (tmdbData.genres || []).map(g => g.name),
           type: type === 'tv' ? 'tv' : 'movie',
           slug: slug,
-          source: 'tmdb'
+          source: 'tmdb',
+          resource: { source: 'TMDB Multi-Server', uploadBy: 'TMDB', seasons: tmdbSeasons }
         };
       } catch (e) {
         detail = { id, title: slug, type: type === 'tv' ? 'tv' : 'movie', source: 'tmdb' };
