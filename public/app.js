@@ -1821,18 +1821,42 @@ async function openDetail(source, type, id, slug) {
   contentArea.innerHTML = '';
 
   try {
-    const detail = await apiFetch(`/api/detail?type=${type}&id=${id}&source=${source}&slug=${slug || ''}`);
+    let detail = null;
+    if (source === 'tmdb') {
+      try {
+        const tmdbData = await fetch(`https://api.themoviedb.org/3/${type === 'tv' ? 'tv' : 'movie'}/${id}?api_key=2dca580c2a14b55200e784d157207b4d`).then(r => r.json());
+        detail = {
+          id: id,
+          title: tmdbData.title || tmdbData.name || 'Untitled',
+          poster: tmdbData.poster_path ? `https://image.tmdb.org/t/p/w500${tmdbData.poster_path}` : '',
+          backdrop: tmdbData.backdrop_path ? `https://image.tmdb.org/t/p/w1280${tmdbData.backdrop_path}` : '',
+          year: (tmdbData.release_date || tmdbData.first_air_date || '').substring(0, 4),
+          rating: tmdbData.vote_average ? String(tmdbData.vote_average.toFixed(1)) : '',
+          overview: tmdbData.overview || '',
+          genres: (tmdbData.genres || []).map(g => g.name),
+          type: type === 'tv' ? 'tv' : 'movie',
+          slug: slug,
+          source: 'tmdb'
+        };
+      } catch (e) {
+        detail = { id, title: slug, type: type === 'tv' ? 'tv' : 'movie', source: 'tmdb' };
+      }
+    } else {
+      detail = await apiFetch(`/api/detail?type=${type}&id=${id}&source=${source}&slug=${slug || ''}`);
+    }
     currentDetail = detail;
 
     // Get cast
     let cast = [];
-    try {
-      const castRes = await fetch(resolveApiUrl(`/api/cast?type=${type === 'tv' ? 'tv' : 'movie'}&id=${id}`));
-      if (castRes.ok) {
-        const castData = await castRes.json();
-        cast = castData.cast || [];
-      }
-    } catch (e) {}
+    if (source !== 'tmdb') {
+      try {
+        const castRes = await fetch(resolveApiUrl(`/api/cast?type=${type === 'tv' ? 'tv' : 'movie'}&id=${id}`));
+        if (castRes.ok) {
+          const castData = await castRes.json();
+          cast = castData.cast || [];
+        }
+      } catch (e) {}
+    }
 
     // Get stream
     let streamData = null;
@@ -1855,9 +1879,6 @@ async function openDetail(source, type, id, slug) {
     const validDASH = (streamData && streamData.dash || []).filter(d => d.url && d.url.length > 0);
     const validHLS = (streamData && streamData.hls || []).filter(h => h.url && h.url.length > 0);
 
-    // VIP-locked MP4 resolutions come back with empty URLs, but the DASH
-    // stream still carries every resolution. Detect the DASH codec (HEVC vs
-    // H.264) and the browser's HEVC support to decide how to unlock them.
     const dashEntry = validDASH[0] || null;
     let dashCodec = String(dashEntry ? (dashEntry.codecName || dashEntry.codec || dashEntry.format || '') : '').toLowerCase();
     const hevcOK = canPlayHEVC();
@@ -1893,7 +1914,13 @@ async function openDetail(source, type, id, slug) {
     let resolutions = [];
     let qualityPlan = [];
 
-    if (mp4Qualities.length > 0) {
+    if (source === 'tmdb') {
+      isEmbed = true;
+      formatLabel = 'External Multi-Server';
+      const servers = getEmbedServers(type === 'tv' ? 'tv' : 'movie', id);
+      playerSrc = servers[0].url;
+      resolutions = servers;
+    } else if (mp4Qualities.length > 0) {
       // MP4 streams carry specific dubbed audio tracks (Hindi, Spanish, etc.)
       playerSrc = mp4Qualities[0].url;
       playerType = 'video/mp4';

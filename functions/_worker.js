@@ -26,7 +26,7 @@ export default {
           mbItems = (r.items || []).map(it => ({ id: it.subject_id, title: it.name, poster: it.poster_url, slug: it.slug, source: 'nexmovies', type: it.subject_type === 2 ? 'tv' : 'movie' }));
         } catch(e) {}
         try {
-          const tmdbRes = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=15d2166f21f17216a3e2005f7701a0a5&query=${encodeURIComponent(q)}`).then(res => res.json());
+          const tmdbRes = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=2dca580c2a14b55200e784d157207b4d&query=${encodeURIComponent(q)}`).then(res => res.json());
           tmdbItems = (tmdbRes.results || []).filter(it => (it.media_type === 'movie' || it.media_type === 'tv') && it.poster_path).map(it => ({
             id: String(it.id), title: it.title || it.name || '', poster: `https://image.tmdb.org/t/p/w500${it.poster_path}`, slug: (it.title || it.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'), source: 'tmdb', type: it.media_type
           }));

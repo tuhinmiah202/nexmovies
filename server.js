@@ -191,7 +191,7 @@ app.get('/api/search', async (req, res) => {
 
   // 2. Fetch from TMDB for global movies/shows not on Moviebox
   try {
-    const tmdbRes = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=15d2166f21f17216a3e2005f7701a0a5&query=${encodeURIComponent(q)}`).then(res => res.json());
+    const tmdbRes = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=2dca580c2a14b55200e784d157207b4d&query=${encodeURIComponent(q)}`).then(res => res.json());
     tmdbItems = (tmdbRes.results || []).filter(it => (it.media_type === 'movie' || it.media_type === 'tv') && it.poster_path).map(it => ({
       id: String(it.id),
       title: it.title || it.name || '',
