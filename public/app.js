@@ -2022,6 +2022,8 @@ async function openDetail(source, type, id, slug) {
       dashIsHevc: dashIsHevc,
       hevcOK: hevcOK,
       isEmbed: isEmbed,
+      se: detail.type === 'tv' ? 1 : 0,
+      ep: detail.type === 'tv' ? 1 : 0,
     };
 
     // Resources panel (season/episode)
@@ -3193,6 +3195,8 @@ function loadEpisode(btn, source, id, getSeason, setEp) {
           dashIsHevc: dashIsHevc,
           hevcOK: canPlayHEVC(),
           isEmbed: false,
+          se: season,
+          ep: ep,
         };
 
         initArtPlayer();
