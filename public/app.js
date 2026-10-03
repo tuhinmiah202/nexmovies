@@ -9,6 +9,35 @@ let searchTimeout = null;
 let currentDetail = null;
 let currentSection = null;
 
+// --- Adsterra Social Bar Controller (Details Page & 10-Min Timer) ---
+function loadSocialBarAd() {
+  try {
+    const existing = document.getElementById('adsterraSocialBarScript');
+    if (existing) existing.remove();
+
+    const s = document.createElement('script');
+    s.id = 'adsterraSocialBarScript';
+    s.src = 'https://smelthrsfranz.com/20/dc/4f/20dc4f90b04e3fbe7b7f3e881e1cb1f7.js';
+    s.async = true;
+    document.body.appendChild(s);
+  } catch (e) {}
+}
+
+function startDetailAdTimer() {
+  stopDetailAdTimer();
+  loadSocialBarAd(); // Trigger immediately on detail page open
+  window.__adsterraTimer = setInterval(() => {
+    loadSocialBarAd(); // Trigger every 10 minutes
+  }, 10 * 60 * 1000);
+}
+
+function stopDetailAdTimer() {
+  if (window.__adsterraTimer) {
+    clearInterval(window.__adsterraTimer);
+    window.__adsterraTimer = null;
+  }
+}
+
 // --- HEVC support detection (cached) ---
 // VIP-locked qualities are only served as HEVC (h265) DASH. Browsers without
 // HEVC decoding show a black screen with audio — detect support once here.
@@ -157,6 +186,7 @@ document.addEventListener('click', (e) => {
 document.querySelectorAll('.nav-item[data-page]').forEach(item => {
   item.addEventListener('click', (e) => {
     e.preventDefault();
+    stopDetailAdTimer();
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     item.classList.add('active');
     currentPage = item.dataset.page;
@@ -171,6 +201,7 @@ document.querySelectorAll('.nav-item[data-page]').forEach(item => {
   const logo = document.querySelector('.sidebar-logo');
   if (!logo) return;
   logo.addEventListener('click', () => {
+    stopDetailAdTimer();
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     const homeItem = document.querySelector('.nav-item[data-page="home"]');
     if (homeItem) homeItem.classList.add('active');
@@ -229,6 +260,7 @@ function captureBrowseState() {
 }
 
 function detailBack() {
+  stopDetailAdTimer();
   stopCurrentTranscode();
   destroyPlayers();
   const st = window.__browseState || { page: 'home', section: null, query: '' };
@@ -1812,6 +1844,7 @@ async function openDetail(source, type, id, slug) {
   showLoading();
   stopCurrentTranscode();
   captureBrowseState();
+  startDetailAdTimer();
 
   // Push to history for back button support
   if (!document.querySelector('.detail-page')) {
@@ -2161,6 +2194,10 @@ async function openDetail(source, type, id, slug) {
     if (downloadOptions.length > 0) {
       const dlItems = downloadOptions.map((opt, i) => {
         const sizeStr = opt.size ? ` (${opt.size})` : '';
+        const is1080 = (opt.height >= 1080 || (opt.label && opt.label.includes('1080')));
+        if (is1080) {
+          return `<button class="dl-option dl-locked" data-locked="true" data-title="${esc(detail.title || '')}"><span style="margin-right:4px;">🔒</span> ${opt.label}${sizeStr} <span style="font-size:10px;background:#e50914;color:#fff;padding:2px 5px;border-radius:4px;margin-left:6px;font-weight:bold;">VIP</span></button>`;
+        }
         return `<button class="dl-option" data-url="${esc(opt.url)}" data-title="${esc(detail.title || '')}">${opt.label}${sizeStr}</button>`;
       }).join('');
       downloadHtml = `
@@ -2291,6 +2328,11 @@ async function openDetail(source, type, id, slug) {
         opt.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
+          if (opt.dataset.locked === 'true') {
+            alert('🔒 1080p Full HD Download is locked for VIP / Premium users. Please select 720p or 480p to download.');
+            showSoonToast();
+            return;
+          }
           const url = opt.dataset.url;
           const title = opt.dataset.title || currentDetail?.title || 'video';
           if (url) triggerDirectDownload(url, title);
