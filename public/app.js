@@ -239,9 +239,10 @@ document.querySelectorAll('.nav-disabled, .soon-faded').forEach(item => {
 });
 
 // --- Detail page back navigation ---
-// Snapshot the browse state before opening a detail page so "Back" returns
-// the user exactly where they were (home / section / search results).
 function destroyPlayers() {
+  if (typeof saveCurrentWatchProgress === 'function') {
+    try { saveCurrentWatchProgress(); } catch (e) {}
+  }
   if (window.__artPlayer) { try { window.__artPlayer.destroy(); } catch (e) {} window.__artPlayer = null; }
   if (window.__dashPlayer) { try { window.__dashPlayer.reset(); } catch (e) {} window.__dashPlayer = null; }
   if (window.__hlsPlayer) { try { window.__hlsPlayer.destroy(); } catch (e) {} window.__hlsPlayer = null; }
@@ -260,6 +261,9 @@ function captureBrowseState() {
 }
 
 function detailBack() {
+  if (typeof saveCurrentWatchProgress === 'function') {
+    try { saveCurrentWatchProgress(); } catch (e) {}
+  }
   stopDetailAdTimer();
   stopCurrentTranscode();
   destroyPlayers();
@@ -275,12 +279,25 @@ function detailBack() {
   setTimeout(() => window.scrollTo({ top: st.scrollY || 0 }), 50);
 }
 
-// Handle Back Button
-window.onpopstate = (event) => {
+// Handle Back Button & Navigation Events
+window.addEventListener('popstate', () => {
+  if (typeof saveCurrentWatchProgress === 'function') {
+    try { saveCurrentWatchProgress(); } catch (e) {}
+  }
   if (document.querySelector('.detail-page')) {
     detailBack();
   }
-};
+});
+window.addEventListener('beforeunload', () => {
+  if (typeof saveCurrentWatchProgress === 'function') {
+    try { saveCurrentWatchProgress(); } catch (e) {}
+  }
+});
+window.addEventListener('pagehide', () => {
+  if (typeof saveCurrentWatchProgress === 'function') {
+    try { saveCurrentWatchProgress(); } catch (e) {}
+  }
+});
 
 // --- Search + Autocomplete ---
 let suggestTimeout = null;
@@ -602,6 +619,31 @@ function saveContinueWatchingProgress(item) {
     if (list.length > 15) list = list.slice(0, 15);
     localStorage.setItem('continueWatchingList', JSON.stringify(list));
   } catch (e) {}
+}
+
+function saveCurrentWatchProgress() {
+  const art = window.__artPlayer;
+  if (!art || !currentDetail || !art.duration || art.currentTime < 5) return;
+  const progress = Math.min(100, Math.round((art.currentTime / art.duration) * 100));
+  if (progress >= 95) {
+    removeContinueWatchingItem(currentDetail.id);
+  } else {
+    const curStream = window.__currentStream || {};
+    saveContinueWatchingProgress({
+      id: currentDetail.id,
+      slug: currentDetail.slug,
+      title: currentDetail.title,
+      poster: currentDetail.poster,
+      type: currentDetail.type || 'movie',
+      source: currentDetail.source || 'nexmovies',
+      currentTime: Math.floor(art.currentTime),
+      duration: Math.floor(art.duration),
+      progress: progress,
+      se: curStream.se || window.__currentSeason || 0,
+      ep: curStream.ep || window.__currentEp || 0,
+      updatedAt: Date.now()
+    });
+  }
 }
 
 function removeContinueWatchingItem(id) {
@@ -1908,9 +1950,13 @@ async function openDetail(source, type, id, slug) {
 
     currentDetail = detail;
 
-    // Check saved watch progress for movie & episode resume
+    // Check saved watch progress for movie & episode resume (match by ID, Slug or Title)
     const cwList = getContinueWatchingList();
-    const savedProgress = cwList.find(i => String(i.id) === String(id) || String(i.slug) === String(slug));
+    const savedProgress = cwList.find(i =>
+      String(i.id) === String(id) ||
+      (i.slug && slug && String(i.slug) === String(slug)) ||
+      (i.title && detail && detail.title && i.title.trim().toLowerCase() === detail.title.trim().toLowerCase())
+    );
     if (savedProgress && savedProgress.currentTime > 5) {
       window.__pendingSeek = savedProgress.currentTime;
     }
@@ -2571,68 +2617,57 @@ function initArtPlayer() {
   });
 
   function applyPendingSeek() {
-    if (window.__pendingSeek && window.__pendingSeek > 5) {
-      const seekTime = window.__pendingSeek;
-      const trySeek = () => {
-        try {
-          if (art && art.video && art.video.readyState >= 1) {
-            art.currentTime = seekTime;
+    if (!window.__pendingSeek || window.__pendingSeek <= 5) return;
+    const targetTime = window.__pendingSeek;
+
+    let seekDone = false;
+    const doSeek = () => {
+      if (seekDone) return;
+      try {
+        if (art && art.video && art.video.readyState >= 1) {
+          art.currentTime = targetTime;
+          if (Math.abs(art.currentTime - targetTime) < 3) {
+            seekDone = true;
             window.__pendingSeek = 0;
-            const mins = Math.floor(seekTime / 60);
-            const secs = Math.floor(seekTime % 60);
+            const mins = Math.floor(targetTime / 60);
+            const secs = Math.floor(targetTime % 60);
             if (art.notice) {
               art.notice.show = `Resumed from ${mins}:${secs.toString().padStart(2, '0')}`;
             }
-            return true;
           }
-        } catch (e) {}
-        return false;
-      };
+        }
+      } catch (e) {}
+    };
 
-      if (!trySeek()) {
-        let attempts = 0;
-        const interval = setInterval(() => {
-          attempts++;
-          if (trySeek() || attempts > 25) {
-            clearInterval(interval);
-            window.__pendingSeek = 0;
-          }
-        }, 200);
+    doSeek();
+
+    art.on('ready', doSeek);
+    art.on('video:loadedmetadata', doSeek);
+    art.on('video:canplay', doSeek);
+    art.on('video:play', doSeek);
+    art.on('video:playing', doSeek);
+
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      doSeek();
+      if (seekDone || attempts > 30) {
+        clearInterval(interval);
       }
-    }
+    }, 200);
   }
 
-  art.on('ready', applyPendingSeek);
-  art.on('video:loadedmetadata', applyPendingSeek);
-  art.on('video:canplay', applyPendingSeek);
+  applyPendingSeek();
 
   // Record watch progress for Continue Watching
-  let cwThrottleTimer = null;
   art.on('video:timeupdate', () => {
-    if (!currentDetail || !art.duration || art.currentTime < 5) return;
-    if (cwThrottleTimer) return;
-    cwThrottleTimer = setTimeout(() => {
-      cwThrottleTimer = null;
-      const progress = Math.min(100, Math.round((art.currentTime / art.duration) * 100));
-      if (progress >= 95) {
-        removeContinueWatchingItem(currentDetail.id);
-      } else {
-        saveContinueWatchingProgress({
-          id: currentDetail.id,
-          slug: currentDetail.slug,
-          title: currentDetail.title,
-          poster: currentDetail.poster,
-          type: currentDetail.type || 'movie',
-          source: currentDetail.source || 'nexmovies',
-          currentTime: Math.floor(art.currentTime),
-          duration: Math.floor(art.duration),
-          progress: progress,
-          se: window.__currentStream?.se || 0,
-          ep: window.__currentStream?.ep || 0,
-          updatedAt: Date.now()
-        });
-      }
-    }, 3000);
+    saveCurrentWatchProgress();
+  });
+  art.on('video:pause', () => {
+    saveCurrentWatchProgress();
+  });
+  art.on('destroy', () => {
+    saveCurrentWatchProgress();
   });
 }
 
