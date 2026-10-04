@@ -2554,7 +2554,13 @@ function initArtPlayer() {
       html: qualityList.map(q => `<div data-quality-url="${q.url}" data-quality-h="${q.height}" style="padding:8px 16px;cursor:pointer;">${q.html}</div>`).join(''),
       onSelect: function(item) {
         const url = item.dataset.qualityUrl;
-        art.switchUrl(url);
+        const pos = art.currentTime || 0;
+        if (pos > 2) window.__pendingSeek = pos;
+        art.switchUrl(url).then(() => {
+          if (pos > 2) {
+            setTimeout(() => { try { art.currentTime = pos; } catch (e) {} }, 300);
+          }
+        });
         return item.innerHTML;
       },
     });
@@ -3044,8 +3050,12 @@ function addPlayerControls(art, stream) {
               art.notice.show = 'Quality: Auto (highest)';
             }
           } else if (qKind === 'mp4' && qUrl) {
+            const pos = (art && art.currentTime) ? art.currentTime : 0;
+            if (pos > 2) window.__pendingSeek = pos;
             if (curType === 'video/mp4') {
-              art.switchUrl(qUrl);
+              art.switchUrl(qUrl).then(() => {
+                if (pos > 2) { setTimeout(() => { try { art.currentTime = pos; } catch (e) {} }, 300); }
+              });
             } else {
               stopCurrentTranscode();
               await switchToSource(qUrl, 'video/mp4');
@@ -3075,7 +3085,11 @@ function addPlayerControls(art, stream) {
           } else if (qKind === 'hls') {
             await playTranscodedQuality(qHeight);
           } else if (qUrl) {
-            art.switchUrl(qUrl);
+            const pos = (art && art.currentTime) ? art.currentTime : 0;
+            if (pos > 2) window.__pendingSeek = pos;
+            art.switchUrl(qUrl).then(() => {
+              if (pos > 2) { setTimeout(() => { try { art.currentTime = pos; } catch (e) {} }, 300); }
+            });
             art.notice.show = `Quality: ${cleanText}`;
           }
         }
@@ -3102,13 +3116,21 @@ function updateQualityControl(bitrates) {
   if (!qualityLabel || !qualityDropdown) return;
 
   const dashHeights = bitrates.map(b => b.height);
-  const items = bitrates.map(b => `<div class="player-dropdown-item" data-qheight="${b.height}" data-qauto="false" data-qkind="dash">${b.height}p</div>`).join('');
-  // Merge free MP4-only qualities (e.g. 360p) that DASH doesn't carry
+  const defaultHeight = dashHeights.includes(720) ? 720 : (dashHeights.includes(480) ? 480 : (dashHeights.find(h => h <= 720) || dashHeights[0] || 720));
+
+  const items = bitrates.map(b => {
+    const isActive = b.height === defaultHeight;
+    return `<div class="player-dropdown-item${isActive ? ' active' : ''}" data-qheight="${b.height}" data-qauto="false" data-qkind="dash">${b.height}p</div>`;
+  }).join('');
   const plan = (window.__currentStream && window.__currentStream.qualityPlan) || [];
   const mp4Only = plan.filter(q => q.kind === 'mp4' && q.url && !dashHeights.includes(q.height));
   const mp4Items = mp4Only.map(q => `<div class="player-dropdown-item" data-qheight="${q.height}" data-qauto="false" data-qkind="mp4" data-qurl="${q.url}">${q.label}</div>`).join('');
-  const autoItem = `<div class="player-dropdown-item active" data-qheight="0" data-qauto="true" data-qkind="dash">Auto</div>`;
+  const autoItem = `<div class="player-dropdown-item" data-qheight="0" data-qauto="true" data-qkind="dash">Auto</div>`;
   qualityDropdown.innerHTML = items + mp4Items + autoItem;
+
+  if (qualityLabel) {
+    qualityLabel.textContent = `${defaultHeight}p`;
+  }
 
   qualityDropdown.querySelectorAll('.player-dropdown-item').forEach(item => {
     item.addEventListener('click', async (e) => {
