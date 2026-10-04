@@ -2554,7 +2554,9 @@ function initArtPlayer() {
       dashPlayer.updateSettings({
         streaming: {
           abr: {
-            autoSwitchBitrate: { video: true, audio: true },
+            autoSwitchBitrate: { video: false, audio: true },
+            initialBitrate: { video: 1800 },
+            maxBitrate: { video: 3500 },
           },
           bufferTimeAtTopQuality: 30,
           bufferTimeAtTopQualityLongForm: 60,
@@ -2583,9 +2585,13 @@ function initArtPlayer() {
             }
           }
           if (targetIndex >= 0) {
-            dashPlayer.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: false } } } });
             dashPlayer.setQualityFor('video', targetIndex);
           }
+        }
+        if (window.__pendingSeek && window.__pendingSeek > 5) {
+          try {
+            dashPlayer.seek(window.__pendingSeek);
+          } catch (e) {}
         }
       });
 
@@ -2620,24 +2626,47 @@ function initArtPlayer() {
     if (!window.__pendingSeek || window.__pendingSeek <= 5) return;
     const targetTime = window.__pendingSeek;
 
-    let seekDone = false;
+    let seekAttempted = false;
+    let seekConfirmed = false;
+
     const doSeek = () => {
-      if (seekDone) return;
+      if (seekConfirmed || !art || !art.video) return;
       try {
-        if (art && art.video && art.video.readyState >= 1) {
+        if (window.__dashPlayer && window.__dashReady) {
+          try { window.__dashPlayer.seek(targetTime); } catch (e) {}
+        }
+
+        if (art.video.readyState >= 1 && !seekAttempted) {
+          seekAttempted = true;
           art.currentTime = targetTime;
-          if (Math.abs(art.currentTime - targetTime) < 3) {
-            seekDone = true;
-            window.__pendingSeek = 0;
-            const mins = Math.floor(targetTime / 60);
-            const secs = Math.floor(targetTime % 60);
-            if (art.notice) {
-              art.notice.show = `Resumed from ${mins}:${secs.toString().padStart(2, '0')}`;
+
+          setTimeout(() => {
+            if (art && art.video) {
+              if (Math.abs(art.video.currentTime - targetTime) < 5) {
+                seekConfirmed = true;
+                window.__pendingSeek = 0;
+                const mins = Math.floor(targetTime / 60);
+                const secs = Math.floor(targetTime % 60);
+                if (art.notice) {
+                  art.notice.show = `Resumed from ${mins}:${secs.toString().padStart(2, '0')}`;
+                }
+              } else if (art.video.currentTime < 5 && targetTime > 5) {
+                // Browser reset currentTime to 0! Allow retry
+                seekAttempted = false;
+              }
             }
-          }
+          }, 800);
         }
       } catch (e) {}
     };
+
+    doSeek();
+
+    art.on('ready', doSeek);
+    art.on('video:loadedmetadata', doSeek);
+    art.on('video:canplay', doSeek);
+    art.on('video:play', doSeek);
+    art.on('video:playing', doSeek);
 
     doSeek();
 
