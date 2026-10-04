@@ -1886,7 +1886,34 @@ async function openDetail(source, type, id, slug) {
     } else {
       detail = await apiFetch(`/api/detail?type=${type}&id=${id}&source=${source}&slug=${slug || ''}`);
     }
+
+    // 1-step instant preferred audio dub resolution (no double-loading / no screen flicker!)
+    const savedPreferredLang = localStorage.getItem('preferredAudioLang');
+    if (savedPreferredLang && detail && detail.dubs && detail.dubs.length > 1) {
+      const preferredDub = detail.dubs.find(d => {
+        const name = (d.lanName || d.lanCode || '').toLowerCase();
+        return name.includes(savedPreferredLang) || savedPreferredLang.includes(name);
+      });
+      if (preferredDub && String(preferredDub.subjectId) !== String(detail.id || id || '')) {
+        try {
+          const dubDetail = await apiFetch(`/api/detail?type=${type}&id=${preferredDub.subjectId}&source=nexmovies&slug=${preferredDub.detailPath || ''}`);
+          if (dubDetail && dubDetail.id) {
+            detail = dubDetail;
+            id = dubDetail.id;
+            slug = dubDetail.slug;
+          }
+        } catch (e) {}
+      }
+    }
+
     currentDetail = detail;
+
+    // Check saved watch progress for movie & episode resume
+    const cwList = getContinueWatchingList();
+    const savedProgress = cwList.find(i => String(i.id) === String(id) || String(i.slug) === String(slug));
+    if (savedProgress && savedProgress.currentTime > 5) {
+      window.__pendingSeek = savedProgress.currentTime;
+    }
 
     // Get cast
     let cast = [];
@@ -1906,8 +1933,8 @@ async function openDetail(source, type, id, slug) {
     // Support both old 'moviebox' and new 'nexmovies' source labels
     if ((source === 'moviebox' || source === 'nexmovies') && slug && id) {
       const isMovie = detail.type === 'movie';
-      const se = isMovie ? 0 : 1;
-      const ep = isMovie ? 0 : 1;
+      const se = isMovie ? 0 : ((savedProgress && savedProgress.se) ? savedProgress.se : 1);
+      const ep = isMovie ? 0 : ((savedProgress && savedProgress.ep) ? savedProgress.ep : 1);
       try {
         streamData = await fetch(resolveApiUrl(`/api/stream?subject_id=${id}&slug=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`)).then(r => r.json());
       } catch (e) {}
@@ -1963,10 +1990,11 @@ async function openDetail(source, type, id, slug) {
       playerSrc = servers[0].url;
       resolutions = servers;
     } else if (mp4Qualities.length > 0) {
-      // MP4 streams carry specific dubbed audio tracks (Hindi, Spanish, etc.)
-      playerSrc = mp4Qualities[0].url;
+      // Default initial playback to 720p or 480p to save 60% bandwidth on all devices
+      const defaultQuality = mp4Qualities.find(q => q.height <= 720) || mp4Qualities[0];
+      playerSrc = defaultQuality.url;
       playerType = 'video/mp4';
-      formatLabel = 'MP4 (H.264)';
+      formatLabel = `MP4 (${defaultQuality.label})`;
       resolutions = mp4Qualities.map(q => ({ height: q.height, label: q.label, url: q.url }));
       qualityPlan = mp4Qualities.map(q => ({ ...q }));
     } else if (dashPlayable) {
@@ -2055,8 +2083,8 @@ async function openDetail(source, type, id, slug) {
       dashIsHevc: dashIsHevc,
       hevcOK: hevcOK,
       isEmbed: isEmbed,
-      se: detail.type === 'tv' ? 1 : 0,
-      ep: detail.type === 'tv' ? 1 : 0,
+      se: detail.type === 'tv' ? ((savedProgress && savedProgress.se) || 1) : 0,
+      ep: detail.type === 'tv' ? ((savedProgress && savedProgress.ep) || 1) : 0,
     };
 
     // Resources panel (season/episode)
@@ -2277,43 +2305,18 @@ async function openDetail(source, type, id, slug) {
       });
     });
 
-    // Auto-select user's preferred audio language if available for this title
-    const savedPreferredLang = localStorage.getItem('preferredAudioLang');
-    if (savedPreferredLang && uniqueDubs.length > 1 && !window.__autoDubSelected) {
-      const preferredDub = uniqueDubs.find(d => {
-        const name = (d.lanName || d.lanCode || '').toLowerCase();
-        return name.includes(savedPreferredLang) || savedPreferredLang.includes(name);
-      });
-      if (preferredDub && String(preferredDub.subjectId) !== String(detail.id || id || '')) {
-        window.__autoDubSelected = true;
-        setTimeout(() => {
-          window.__autoDubSelected = false;
-          openDetail('nexmovies', type === 'tv' ? 'tv' : 'movie', preferredDub.subjectId, preferredDub.detailPath);
-        }, 100);
-      }
-    }
-
     // Auto-resume last watched episode for TV series from Continue Watching
     if (detail.type === 'tv') {
-      const cwList = getContinueWatchingList();
-      const savedShow = cwList.find(i => String(i.id) === String(id) || String(i.slug) === String(slug));
-      if (savedShow && savedShow.se && savedShow.ep) {
-        const targetSeason = savedShow.se;
-        const targetEp = savedShow.ep;
-        if (savedShow.currentTime > 5) {
-          window.__pendingSeek = savedShow.currentTime;
-        }
+      const targetSeason = (savedProgress && savedProgress.se) ? savedProgress.se : 1;
+      const targetEp = (savedProgress && savedProgress.ep) ? savedProgress.ep : 1;
+      setTimeout(() => {
+        const sTab = document.querySelector(`.season-tab[data-season="${targetSeason}"]`);
+        if (sTab && !sTab.classList.contains('active')) sTab.click();
         setTimeout(() => {
-          const sTab = document.querySelector(`.season-tab[data-season="${targetSeason}"]`);
-          if (sTab) sTab.click();
-          setTimeout(() => {
-            const epBtn = document.querySelector(`.ep-btn[data-ep="${targetEp}"]`);
-            if (epBtn) epBtn.click();
-          }, 150);
-        }, 100);
-      } else {
-        setPlayingEpisode(1);
-      }
+          const epBtn = document.querySelector(`.ep-btn[data-ep="${targetEp}"]`);
+          if (epBtn) epBtn.click();
+        }, 120);
+      }, 80);
     }
 
     // Bind download button + dropdown
@@ -2415,8 +2418,15 @@ function initArtPlayer() {
   const isHLS = type === 'application/x-mpegURL';
   const resolutions = stream.resolutions || [];
 
+  const defaultMp4 = resolutions.find(r => r.height === 720) ||
+                     resolutions.find(r => r.height === 480) ||
+                     resolutions.find(r => r.height <= 720) ||
+                     resolutions[resolutions.length - 1] ||
+                     resolutions[0];
+  const defaultHeight = defaultMp4 ? defaultMp4.height : 720;
+
   const qualityList = resolutions.map(r => ({
-    default: r.height === 1080 || (resolutions.indexOf(r) === 0),
+    default: r.height === defaultHeight,
     html: r.label || `${r.height}p`,
     url: isDASH ? null : (r.url || src),
     height: r.height,
@@ -2514,14 +2524,21 @@ function initArtPlayer() {
         if (bitrateList && bitrateList.length > 0) {
           window.__dashBitrates = bitrateList;
           updateQualityControl(bitrateList);
-          // Apply a quality requested before the player finished initializing
-          if (window.__pendingDashHeight) {
-            const target = window.__pendingDashHeight;
-            window.__pendingDashHeight = null;
-            dashPlayer.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: false } } } });
-            for (const b of bitrateList) {
-              if (b.height === target) { dashPlayer.setQualityFor('video', b.qualityIndex); break; }
+
+          let targetIndex = -1;
+          const b720 = bitrateList.find(b => b.height === 720);
+          if (b720) targetIndex = b720.qualityIndex;
+          else {
+            const b480 = bitrateList.find(b => b.height === 480);
+            if (b480) targetIndex = b480.qualityIndex;
+            else {
+              const under720 = [...bitrateList].filter(b => b.height <= 720).sort((a,b) => b.height - a.height);
+              if (under720.length) targetIndex = under720[0].qualityIndex;
             }
+          }
+          if (targetIndex >= 0) {
+            dashPlayer.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: false } } } });
+            dashPlayer.setQualityFor('video', targetIndex);
           }
         }
       });
@@ -2547,13 +2564,41 @@ function initArtPlayer() {
     console.error('ArtPlayer error:', error);
   });
 
-  art.on('ready', () => {
-    console.log('ArtPlayer ready');
-    if (window.__pendingSeek && window.__pendingSeek > 0) {
-      try { art.currentTime = window.__pendingSeek; } catch (e) {}
-      window.__pendingSeek = 0;
+  function applyPendingSeek() {
+    if (window.__pendingSeek && window.__pendingSeek > 5) {
+      const seekTime = window.__pendingSeek;
+      const trySeek = () => {
+        try {
+          if (art && art.video && art.video.readyState >= 1) {
+            art.currentTime = seekTime;
+            window.__pendingSeek = 0;
+            const mins = Math.floor(seekTime / 60);
+            const secs = Math.floor(seekTime % 60);
+            if (art.notice) {
+              art.notice.show = `Resumed from ${mins}:${secs.toString().padStart(2, '0')}`;
+            }
+            return true;
+          }
+        } catch (e) {}
+        return false;
+      };
+
+      if (!trySeek()) {
+        let attempts = 0;
+        const interval = setInterval(() => {
+          attempts++;
+          if (trySeek() || attempts > 25) {
+            clearInterval(interval);
+            window.__pendingSeek = 0;
+          }
+        }, 200);
+      }
     }
-  });
+  }
+
+  art.on('ready', applyPendingSeek);
+  art.on('video:loadedmetadata', applyPendingSeek);
+  art.on('video:canplay', applyPendingSeek);
 
   // Record watch progress for Continue Watching
   let cwThrottleTimer = null;
