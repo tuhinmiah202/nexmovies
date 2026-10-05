@@ -37,13 +37,13 @@ app.get('/api/proxy', async (req, res) => {
 
   try {
     const proxyHeaders = { ...CDN_HEADERS };
-    // Pass Range header ONLY if explicitly requested by video player (seeking) AND NOT downloading
-    if (req.headers.range && !isDownload) {
+    // Pass Range header for both video streaming and multi-threaded/resumable downloads
+    if (req.headers.range) {
       proxyHeaders['Range'] = req.headers.range;
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
+    const timeout = setTimeout(() => controller.abort(), 30000);
 
     const response = await fetch(url, {
       headers: proxyHeaders,
@@ -59,9 +59,10 @@ app.get('/api/proxy', async (req, res) => {
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', '*');
+    res.setHeader('Accept-Ranges', 'bytes');
 
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
-    res.setHeader('Accept-Ranges', 'bytes');
+    if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
 
     if (isDownload) {
       const rawName = (filename || title || 'video').toString();
@@ -71,11 +72,10 @@ app.get('/api/proxy', async (req, res) => {
 
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${asciiNameWithExt}"; filename*=UTF-8''${encodedUtf8Name}`);
-      res.status(200);
+      res.status(response.status === 206 ? 206 : 200);
     } else {
       if (response.headers.get('content-type')) res.setHeader('Content-Type', response.headers.get('content-type'));
-      if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'));
-      if (response.status === 206) res.status(206);
+      res.status(response.status === 206 ? 206 : 200);
     }
 
     // Free fetch stream immediately when client disconnects to prevent Render hanging/RAM overload
