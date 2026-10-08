@@ -68,6 +68,18 @@ function canPlayHEVC() {
   return ok;
 }
 
+// Helper to enforce 720p default, 480p fallback, or closest <= 720p quality
+function get720pOr480pQuality(qualities) {
+  if (!qualities || !qualities.length) return null;
+  const q720 = qualities.find(q => q.height === 720);
+  if (q720) return q720;
+  const q480 = qualities.find(q => q.height === 480);
+  if (q480) return q480;
+  const under720 = qualities.filter(q => q.height <= 720).sort((a, b) => b.height - a.height);
+  if (under720.length) return under720[0];
+  return qualities[qualities.length - 1] || qualities[0];
+}
+
 // Stop any running server-side transcode session
 function stopCurrentTranscode() {
   if (window.__transcodeId) {
@@ -2036,8 +2048,8 @@ async function openDetail(source, type, id, slug) {
       playerSrc = servers[0].url;
       resolutions = servers;
     } else if (mp4Qualities.length > 0) {
-      // Default initial playback to 720p or 480p to save 60% bandwidth on all devices
-      const defaultQuality = mp4Qualities.find(q => q.height <= 720) || mp4Qualities[0];
+      // Default initial playback to 720p or 480p to save bandwidth
+      const defaultQuality = get720pOr480pQuality(mp4Qualities);
       playerSrc = defaultQuality.url;
       playerType = 'video/mp4';
       formatLabel = `MP4 (${defaultQuality.label})`;
@@ -3319,7 +3331,8 @@ function loadEpisode(btn, source, id, getSeason, setEp) {
         resolutions = (window.__dashManifest?.resolutions || []);
         qualityPlan = resolutions.map(r => ({ height: parseInt(r.height) || 0, label: r.label || r.height + 'p', kind: 'dash', url: '' }));
       } else if (mp4Qualities.length > 0) {
-        newSrc = mp4Qualities[0].url;
+        const defaultQuality = get720pOr480pQuality(mp4Qualities);
+        newSrc = defaultQuality.url;
         newType = 'video/mp4';
         resolutions = mp4Qualities.map(q => ({ height: q.height, label: q.label, url: q.url }));
         qualityPlan = mp4Qualities.map(q => ({ ...q }));

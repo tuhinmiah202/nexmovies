@@ -169,6 +169,14 @@ app.get('/api/stream', async (req, res) => {
   res.status(404).json({ error: 'Stream not found' });
 });
 
+// --- Adult Content Filter Helper ---
+const ADULT_KEYWORDS_REGEX = /\b(18\+|adult|porn|porno|sex|sexy|xxx|x-rated|nude|nudity|erotic|erotica|hentai|softcore|strip|desire|sensual|hot short|hot tv|hot series|uncensored)\b/i;
+
+function isAdultContent(text) {
+  if (!text) return false;
+  return ADULT_KEYWORDS_REGEX.test(text);
+}
+
 app.get('/api/search', async (req, res) => {
   const q = req.query.q || '';
   if (!q) return res.json({ movies: [] });
@@ -204,11 +212,14 @@ app.get('/api/search', async (req, res) => {
     }));
   } catch (e) {}
 
-  // Merge items without duplicates (prefer Moviebox items first)
+  // Filter out any adult items from moviebox and tmdb
+  const cleanMoviebox = movieboxItems.filter(m => !isAdultContent(m.title) && !isAdultContent(m.slug));
+  const cleanTmdb = tmdbItems.filter(t => !isAdultContent(t.title) && !isAdultContent(t.slug));
+
   const seenTitles = new Set();
   const combined = [];
 
-  for (const m of movieboxItems) {
+  for (const m of cleanMoviebox) {
     const key = m.title.toLowerCase().trim();
     if (!seenTitles.has(key)) {
       seenTitles.add(key);
@@ -216,7 +227,7 @@ app.get('/api/search', async (req, res) => {
     }
   }
 
-  for (const t of tmdbItems) {
+  for (const t of cleanTmdb) {
     const key = t.title.toLowerCase().trim();
     if (!seenTitles.has(key)) {
       seenTitles.add(key);
@@ -230,7 +241,8 @@ app.get('/api/search', async (req, res) => {
 app.get('/api/search/suggest', async (req, res) => {
   try {
     const r = await fetch(`${API_URL}/search/suggest?q=${encodeURIComponent(req.query.q || '')}`).then(res => res.json());
-    res.json(r);
+    const filteredSuggestions = (r.suggestions || []).filter(s => s && s.word && !isAdultContent(s.word));
+    res.json({ suggestions: filteredSuggestions });
   } catch(e) { res.json({ suggestions: [] }); }
 });
 
