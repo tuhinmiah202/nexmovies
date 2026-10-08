@@ -169,12 +169,28 @@ app.get('/api/stream', async (req, res) => {
   res.status(404).json({ error: 'Stream not found' });
 });
 
-// --- Adult Content Filter Helper ---
+// --- Adult Content & Search Relevance Filter Helpers ---
 const ADULT_KEYWORDS_REGEX = /\b(18\+|adult|porn|porno|sex|sexy|xxx|x-rated|nude|nudity|erotic|erotica|hentai|softcore|strip|desire|sensual|hot short|hot tv|hot series|uncensored)\b/i;
 
 function isAdultContent(text) {
   if (!text) return false;
   return ADULT_KEYWORDS_REGEX.test(text);
+}
+
+function isRelevantSearchMatch(title, slug, query) {
+  if (!query) return true;
+  const qClean = query.trim().toLowerCase();
+  if (qClean.length < 2) return true;
+  const titleClean = (title || '').toLowerCase();
+  const slugClean = (slug || '').toLowerCase();
+
+  if (titleClean.includes(qClean) || slugClean.includes(qClean)) return true;
+
+  const words = qClean.split(/\s+/).filter(w => w.length >= 2);
+  if (words.length > 0) {
+    return words.every(w => titleClean.includes(w) || slugClean.includes(w));
+  }
+  return false;
 }
 
 app.get('/api/search', async (req, res) => {
@@ -212,9 +228,18 @@ app.get('/api/search', async (req, res) => {
     }));
   } catch (e) {}
 
-  // Filter out any adult items from moviebox and tmdb
-  const cleanMoviebox = movieboxItems.filter(m => !isAdultContent(m.title) && !isAdultContent(m.slug));
-  const cleanTmdb = tmdbItems.filter(t => !isAdultContent(t.title) && !isAdultContent(t.slug));
+  // Filter out adult items and irrelevant matches that don't match query
+  const cleanMoviebox = movieboxItems.filter(m =>
+    !isAdultContent(m.title) &&
+    !isAdultContent(m.slug) &&
+    isRelevantSearchMatch(m.title, m.slug, q)
+  );
+
+  const cleanTmdb = tmdbItems.filter(t =>
+    !isAdultContent(t.title) &&
+    !isAdultContent(t.slug) &&
+    isRelevantSearchMatch(t.title, t.slug, q)
+  );
 
   const seenTitles = new Set();
   const combined = [];
@@ -239,9 +264,14 @@ app.get('/api/search', async (req, res) => {
 });
 
 app.get('/api/search/suggest', async (req, res) => {
+  const q = req.query.q || '';
   try {
-    const r = await fetch(`${API_URL}/search/suggest?q=${encodeURIComponent(req.query.q || '')}`).then(res => res.json());
-    const filteredSuggestions = (r.suggestions || []).filter(s => s && s.word && !isAdultContent(s.word));
+    const r = await fetch(`${API_URL}/search/suggest?q=${encodeURIComponent(q)}`).then(res => res.json());
+    const filteredSuggestions = (r.suggestions || []).filter(s =>
+      s && s.word &&
+      !isAdultContent(s.word) &&
+      isRelevantSearchMatch(s.word, s.word, q)
+    );
     res.json({ suggestions: filteredSuggestions });
   } catch(e) { res.json({ suggestions: [] }); }
 });

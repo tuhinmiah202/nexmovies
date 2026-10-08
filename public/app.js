@@ -2306,6 +2306,7 @@ async function openDetail(source, type, id, slug) {
         </div>
         <div class="detail-top">
           <div class="detail-player-wrap">
+            <div class="buffer-tip-banner">💡 বেশি বাফার বা লোডিং হলে পেজটি একবার রিফ্রেশ দিন</div>
             <div class="player-wrap">
               <div class="player-frame" id="playerFrame">
                 <div id="artplayer-app"></div>
