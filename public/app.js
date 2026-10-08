@@ -156,23 +156,34 @@ window.addEventListener('load', checkPWAInstalled);
 checkPWAInstalled();
 
 async function triggerInstall() {
-  if (!deferredPrompt) {
-    alert('Installation is currently handled by your browser menu (Add to Home Screen) or Nexmovies is already installed.');
-    return;
+  if (deferredPrompt) {
+    try {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        localStorage.setItem('pwaInstalled', 'true');
+        checkPWAInstalled();
+      }
+      deferredPrompt = null;
+      return;
+    } catch (e) {}
   }
-  deferredPrompt.prompt();
-  const { outcome } = await deferredPrompt.userChoice;
-  if (outcome === 'accepted') {
-    checkPWAInstalled();
+
+  // Smart fallback instructions for iOS Safari & Android
+  const isIOS = /ipad|iphone|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  if (isIOS) {
+    alert("📱 To install Nexmovies App on iPhone/iPad:\n\n1. Tap the Share button ⎋ at the bottom of Safari\n2. Scroll down and tap 'Add to Home Screen' ➕");
+  } else {
+    alert("📱 To install Nexmovies App:\n\n1. Tap the 3 dots (⋮) menu at the top right of your browser\n2. Select 'Install app' or 'Add to Home Screen' 📲");
   }
-  deferredPrompt = null;
 }
 
-document.querySelectorAll('#installAppBtn, #topInstallBtn').forEach(btn => {
-  btn.addEventListener('click', (e) => {
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('#installAppBtn, #topInstallBtn, .get-app-btn, .btn-download');
+  if (btn) {
     e.preventDefault();
     triggerInstall();
-  });
+  }
 });
 
 // Register Service Worker
