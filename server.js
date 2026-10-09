@@ -133,11 +133,19 @@ app.get('/api/stream', async (req, res) => {
 
   async function fetchBackendStream() {
     const streamUrl = `${API_URL}/api/stream/${subject_id}?detail_path=${encodeURIComponent(slug || '')}&se=${s}&ep=${e}`;
-    const response = await fetch(streamUrl, { timeout: 12000 });
-    return await response.json();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(streamUrl, { signal: controller.signal });
+      clearTimeout(timer);
+      return await response.json();
+    } catch (e) {
+      clearTimeout(timer);
+      throw e;
+    }
   }
 
-  // 1. Fetch from backend API (with automatic retry for cold-start delays)
+  // 1. Fetch from backend API
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const data = await fetchBackendStream();
@@ -153,14 +161,17 @@ app.get('/api/stream', async (req, res) => {
         return res.json(data);
       }
     } catch (err) {
-      if (attempt === 1) await new Promise(r => setTimeout(r, 600));
+      if (attempt === 1) await new Promise(r => setTimeout(r, 400));
     }
   }
 
   // 2. Direct fallback to netfilm if non-empty streams exist
   try {
     const directUrl = `https://netfilm.world/wefeed-h5api-bff/subject/play?subjectId=${subject_id}&se=${s}&ep=${e}&detailPath=${encodeURIComponent(slug || '')}`;
-    const directRes = await fetch(directUrl, { headers: CDN_HEADERS, timeout: 12000 });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    const directRes = await fetch(directUrl, { headers: CDN_HEADERS, signal: controller.signal });
+    clearTimeout(timer);
     const directData = await directRes.json();
 
     const play = directData?.data;

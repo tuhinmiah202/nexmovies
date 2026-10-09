@@ -2026,9 +2026,6 @@ async function openDetail(source, type, id, slug) {
         captionData = await fetch(resolveApiUrl(`/api/stream/${id}/captions?detail_path=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`)).then(r => r.json());
       } catch (e) {}
     }
-        captionData = await fetch(resolveApiUrl(`/api/stream/${id}/captions?detail_path=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`)).then(r => r.json());
-      } catch (e) {}
-    }
 
     // Filter valid sources
     const validSources = (streamData && streamData.sources || []).filter(s => s.url && s.url.length > 0);
