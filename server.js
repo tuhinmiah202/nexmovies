@@ -131,27 +131,36 @@ app.get('/api/stream', async (req, res) => {
   const s = se !== undefined ? parseInt(se) : 0;
   const e = ep !== undefined ? parseInt(ep) : 0;
 
-  // 1. Fetch from backend API which generates signed stream hash automatically
-  try {
-    const response = await fetch(`${API_URL}/api/stream/${subject_id}?detail_path=${encodeURIComponent(slug || '')}&se=${s}&ep=${e}`);
-    const data = await response.json();
-    const hasSources = Array.isArray(data?.sources) && data.sources.length > 0;
-    const hasDash = Array.isArray(data?.dash) && data.dash.length > 0;
-    const hasHls = Array.isArray(data?.hls) && data.hls.length > 0;
+  async function fetchBackendStream() {
+    const streamUrl = `${API_URL}/api/stream/${subject_id}?detail_path=${encodeURIComponent(slug || '')}&se=${s}&ep=${e}`;
+    const response = await fetch(streamUrl, { timeout: 12000 });
+    return await response.json();
+  }
 
-    if (data && data.has_resource && (hasSources || hasDash || hasHls)) {
-      const host = getHostUrl(req);
-      if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
-      if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
-      if (data.hls) data.hls.forEach(h => { if (h.url) h.url = `${host}/api/proxy?url=${encodeURIComponent(h.url)}`; });
-      return res.json(data);
+  // 1. Fetch from backend API (with automatic retry for cold-start delays)
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const data = await fetchBackendStream();
+      const hasSources = Array.isArray(data?.sources) && data.sources.length > 0;
+      const hasDash = Array.isArray(data?.dash) && data.dash.length > 0;
+      const hasHls = Array.isArray(data?.hls) && data.hls.length > 0;
+
+      if (data && data.has_resource && (hasSources || hasDash || hasHls)) {
+        const host = getHostUrl(req);
+        if (data.sources) data.sources.forEach(src => { if (src.url) src.url = `${host}/api/proxy?url=${encodeURIComponent(src.url)}`; });
+        if (data.dash) data.dash.forEach(d => { if (d.url) d.url = `${host}/api/proxy?url=${encodeURIComponent(d.url)}`; });
+        if (data.hls) data.hls.forEach(h => { if (h.url) h.url = `${host}/api/proxy?url=${encodeURIComponent(h.url)}`; });
+        return res.json(data);
+      }
+    } catch (err) {
+      if (attempt === 1) await new Promise(r => setTimeout(r, 600));
     }
-  } catch (err) {}
+  }
 
   // 2. Direct fallback to netfilm if non-empty streams exist
   try {
     const directUrl = `https://netfilm.world/wefeed-h5api-bff/subject/play?subjectId=${subject_id}&se=${s}&ep=${e}&detailPath=${encodeURIComponent(slug || '')}`;
-    const directRes = await fetch(directUrl, { headers: CDN_HEADERS, timeout: 10000 });
+    const directRes = await fetch(directUrl, { headers: CDN_HEADERS, timeout: 12000 });
     const directData = await directRes.json();
 
     const play = directData?.data;

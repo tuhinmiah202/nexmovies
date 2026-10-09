@@ -2004,10 +2004,28 @@ async function openDetail(source, type, id, slug) {
       const isMovie = detail.type === 'movie';
       const se = isMovie ? 0 : ((savedProgress && savedProgress.se) ? savedProgress.se : 1);
       const ep = isMovie ? 0 : ((savedProgress && savedProgress.ep) ? savedProgress.ep : 1);
+
+      const fetchStream = async () => {
+        try {
+          const res = await fetch(resolveApiUrl(`/api/stream?subject_id=${id}&slug=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`));
+          const data = await res.json();
+          if (data && data.has_resource && (data.sources?.length || data.dash?.length || data.hls?.length)) {
+            return data;
+          }
+        } catch (e) {}
+        return null;
+      };
+
+      streamData = await fetchStream();
+      if (!streamData) {
+        await new Promise(r => setTimeout(r, 600));
+        streamData = await fetchStream();
+      }
+
       try {
-        streamData = await fetch(resolveApiUrl(`/api/stream?subject_id=${id}&slug=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`)).then(r => r.json());
+        captionData = await fetch(resolveApiUrl(`/api/stream/${id}/captions?detail_path=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`)).then(r => r.json());
       } catch (e) {}
-      try {
+    }
         captionData = await fetch(resolveApiUrl(`/api/stream/${id}/captions?detail_path=${encodeURIComponent(slug)}&se=${se}&ep=${ep}`)).then(r => r.json());
       } catch (e) {}
     }
