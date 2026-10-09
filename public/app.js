@@ -639,7 +639,7 @@ function saveContinueWatchingProgress(item) {
     let list = getContinueWatchingList();
     list = list.filter(i => String(i.id) !== String(item.id));
     list.unshift(item);
-    if (list.length > 15) list = list.slice(0, 15);
+    if (list.length > 10) list = list.slice(0, 10);
     localStorage.setItem('continueWatchingList', JSON.stringify(list));
   } catch (e) {}
 }
@@ -706,7 +706,7 @@ function renderContinueWatchingCard(item) {
 }
 
 function renderContinueWatchingRow() {
-  const list = getContinueWatchingList().filter(i => i.progress < 95 && i.currentTime > 5);
+  const list = getContinueWatchingList().filter(i => i.progress < 95 && i.currentTime > 5).slice(0, 10);
   if (!list.length) return '';
 
   const cardsHtml = list.map(renderContinueWatchingCard).join('');
@@ -2901,9 +2901,8 @@ function addPlayerControls(art, stream) {
     });
   }
 
-  const currentQuality = resolutions.length > 0
-    ? (resolutions[0].label || resolutions[0].height + 'p')
-    : (isDASH ? '1080p' : 'Auto');
+  const defaultObj = get720pOr480pQuality(resolutions) || (resolutions.length > 0 ? resolutions[0] : null);
+  const currentQuality = defaultObj ? (defaultObj.label || defaultObj.height + 'p') : '480p';
 
   art.controls.add({
     name: 'quality-control',
