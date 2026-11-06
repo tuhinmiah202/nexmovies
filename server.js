@@ -25,8 +25,23 @@ function getHostUrl(req) {
   return `${protocol}://${host}`;
 }
 
+const http = require('http');
+const https = require('https');
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 100 });
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
+
+// Enable global CORS headers for all API requests
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
 
 // --- STABLE VIDEO PROXY WITH HTTPS SSL SUPPORT & DIRECT DOWNLOAD ---
 app.get('/api/proxy', async (req, res) => {
@@ -43,11 +58,12 @@ app.get('/api/proxy', async (req, res) => {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 60000);
 
     const response = await fetch(url, {
       headers: proxyHeaders,
       redirect: 'follow',
+      agent: (_parsedURL) => _parsedURL.protocol === 'http:' ? httpAgent : httpsAgent,
       signal: controller.signal
     });
     clearTimeout(timeout);
@@ -78,12 +94,21 @@ app.get('/api/proxy', async (req, res) => {
       res.status(response.status === 206 ? 206 : 200);
     }
 
-    // Free fetch stream immediately when client disconnects to prevent Render hanging/RAM overload
-    res.on('close', () => {
-      if (response.body && typeof response.body.destroy === 'function') {
-        response.body.destroy();
-      }
-    });
+    // Clean up sockets & stream memory on disconnect / finish to prevent Fly hanging
+    const cleanup = () => {
+      try {
+        if (response.body && typeof response.body.destroy === 'function') {
+          response.body.destroy();
+        }
+      } catch (e) {}
+    };
+
+    res.on('close', cleanup);
+    res.on('finish', cleanup);
+    res.on('error', cleanup);
+    if (response.body && typeof response.body.on === 'function') {
+      response.body.on('error', cleanup);
+    }
 
     response.body.pipe(res);
   } catch (e) {
