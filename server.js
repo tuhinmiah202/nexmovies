@@ -28,8 +28,22 @@ function getHostUrl(req) {
 const http = require('http');
 const https = require('https');
 
-const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100 });
-const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 100 });
+// Keep-Alive connection agent with automatic stale socket pruning (prevents 2-3 hour buffering freeze)
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 3000,
+  maxSockets: 250,
+  maxFreeSockets: 25,
+  timeout: 15000
+});
+
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 3000,
+  maxSockets: 250,
+  maxFreeSockets: 25,
+  timeout: 15000
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
@@ -47,6 +61,9 @@ app.use((req, res, next) => {
 app.get('/api/proxy', async (req, res) => {
   const { url, download, title, filename } = req.query;
   if (!url) return res.status(400).send('Missing url');
+
+  req.setTimeout(60000, () => { try { req.destroy(); } catch (e) {} });
+  res.setTimeout(60000, () => { try { res.destroy(); } catch (e) {} });
 
   const isDownload = download === '1' || !!filename || !!title;
 

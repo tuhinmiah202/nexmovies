@@ -2657,8 +2657,35 @@ function initArtPlayer() {
     });
   }
 
+  async function refreshExpiredStreamAndResume() {
+    if (!currentDetail || window.__isStreamRefreshing) return;
+    window.__isStreamRefreshing = true;
+    const currentPos = (art && art.currentTime) ? art.currentTime : 0;
+    if (art && art.notice) art.notice.show = '🔄 Renewing stream signature, please wait...';
+    try {
+      const isMovie = currentDetail.type === 'movie';
+      const se = isMovie ? 0 : (window.__currentStream?.se || 1);
+      const ep = isMovie ? 0 : (window.__currentStream?.ep || 1);
+      const res = await fetch(resolveApiUrl(`/api/stream?subject_id=${currentDetail.id}&slug=${encodeURIComponent(currentDetail.slug)}&se=${se}&ep=${ep}`));
+      const data = await res.json();
+      if (data && data.has_resource) {
+        const mp4s = (data.sources || []).filter(s => s.url);
+        const dashes = (data.dash || []).filter(d => d.url);
+        let newUrl = mp4s.length ? mp4s[0].url : (dashes.length ? dashes[0].url : null);
+        if (newUrl) {
+          window.__pendingSeek = currentPos;
+          if (art && typeof art.switchUrl === 'function') {
+            await art.switchUrl(newUrl);
+          }
+        }
+      }
+    } catch(e) {}
+    window.__isStreamRefreshing = false;
+  }
+
   art.on('error', (error) => {
     console.error('ArtPlayer error:', error);
+    refreshExpiredStreamAndResume();
   });
 
   function applyPendingSeek() {
