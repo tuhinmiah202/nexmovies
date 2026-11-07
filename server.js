@@ -303,21 +303,22 @@ app.get('/api/search', async (req, res) => {
     isRelevantSearchMatch(t.title, t.slug, q)
   );
 
-  const seenTitles = new Set();
+  // Key by title + year + source to allow both Nexmovies and TMDB global items
+  const seenKeys = new Set();
   const combined = [];
 
   for (const m of cleanMoviebox) {
-    const key = m.title.toLowerCase().trim();
-    if (!seenTitles.has(key)) {
-      seenTitles.add(key);
+    const key = `${m.title.toLowerCase().trim()}|${m.source}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
       combined.push(m);
     }
   }
 
   for (const t of cleanTmdb) {
-    const key = t.title.toLowerCase().trim();
-    if (!seenTitles.has(key)) {
-      seenTitles.add(key);
+    const key = `${t.title.toLowerCase().trim()}|${t.year || ''}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
       combined.push(t);
     }
   }
@@ -326,16 +327,44 @@ app.get('/api/search', async (req, res) => {
 });
 
 app.get('/api/search/suggest', async (req, res) => {
-  const q = req.query.q || '';
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json({ suggestions: [] });
+
+  let suggestions = [];
+  const seenWords = new Set();
+
+  // 1. Suggestions from Moviebox
   try {
     const r = await fetch(`${API_URL}/search/suggest?q=${encodeURIComponent(q)}`).then(res => res.json());
-    const filteredSuggestions = (r.suggestions || []).filter(s =>
-      s && s.word &&
-      !isAdultContent(s.word) &&
-      isRelevantSearchMatch(s.word, s.word, q)
-    );
-    res.json({ suggestions: filteredSuggestions });
-  } catch(e) { res.json({ suggestions: [] }); }
+    (r.suggestions || []).forEach(s => {
+      if (s && s.word && !isAdultContent(s.word) && isRelevantSearchMatch(s.word, s.word, q)) {
+        const wKey = s.word.toLowerCase().trim();
+        if (!seenWords.has(wKey)) {
+          seenWords.add(wKey);
+          suggestions.push({ word: s.word });
+        }
+      }
+    });
+  } catch(e) {}
+
+  // 2. Suggestions from TMDB global database if Moviebox returned few suggestions
+  if (suggestions.length < 5) {
+    try {
+      const tmdbRes = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=2dca580c2a14b55200e784d157207b4d&query=${encodeURIComponent(q)}`).then(res => res.json());
+      (tmdbRes.results || []).forEach(it => {
+        const title = it.title || it.name;
+        if (title && !isAdultContent(title) && isRelevantSearchMatch(title, title, q)) {
+          const wKey = title.toLowerCase().trim();
+          if (!seenWords.has(wKey)) {
+            seenWords.add(wKey);
+            suggestions.push({ word: title });
+          }
+        }
+      });
+    } catch(e) {}
+  }
+
+  res.json({ suggestions: suggestions.slice(0, 8) });
 });
 
 app.get('/api/recent-movies', async (req, res) => {
