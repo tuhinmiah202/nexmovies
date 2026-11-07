@@ -1945,21 +1945,21 @@ function getEmbedServers(type, id, se, ep) {
   else if (savedLang.includes('tamil') || savedLang.includes('ta')) langCode = 'ta';
   else if (savedLang.includes('telugu') || savedLang.includes('te')) langCode = 'te';
 
-  // Explicitly target audio/dub track instead of subtitle language
-  const audioParams = `?audio_lang=${langCode}&audio_track=${langCode}&audio=${langCode}&dub=${langCode}&audio_name=hindi`;
+  // Comprehensive audio language query parameters for YapGrid, VidCore, MultiEmbed, 2Embed
+  const audioParams = `?audio_lang=${langCode}&audio=${langCode}&audio_track=${langCode}&audio_name=hindi&dub=${langCode}&ds_lang=${langCode}&language=hindi&preferred_lang=hindi&default_audio=hindi&ds=${langCode}`;
 
   if (type === 'tv') {
     return [
       { name: 'Server 1', url: `https://yapgrid.com/embed/tv/${id}/${s}/${e}${audioParams}` },
       { name: 'Server 2', url: `https://vidcore.org/embed/tv/${id}/${s}/${e}${audioParams}` },
-      { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}&audio_lang=${langCode}&dub=${langCode}` },
+      { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}&audio_lang=${langCode}&dub=${langCode}&ds_lang=${langCode}` },
       { name: 'Server 4', url: `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}&audio_lang=${langCode}` },
     ];
   }
   return [
     { name: 'Server 1', url: `https://yapgrid.com/embed/movie/${id}${audioParams}` },
     { name: 'Server 2', url: `https://vidcore.org/embed/movie/${id}${audioParams}` },
-    { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&audio_lang=${langCode}&dub=${langCode}` },
+    { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&audio_lang=${langCode}&dub=${langCode}&ds_lang=${langCode}` },
     { name: 'Server 4', url: `https://www.2embed.cc/embed/${id}?audio_lang=${langCode}` },
   ];
 }
@@ -2514,6 +2514,17 @@ function initEmbedPlayer(src, servers) {
   }
 
   frame.innerHTML = `<iframe id="movie-iframe" src="${src}" allowfullscreen allow="autoplay; fullscreen; picture-in-picture" style="width:100%;aspect-ratio:16/9;border:none;border-radius:12px;"></iframe>`;
+
+  const iframe = document.getElementById('movie-iframe');
+  if (iframe) {
+    iframe.addEventListener('load', () => {
+      try {
+        iframe.contentWindow.postMessage({ type: 'SET_AUDIO_TRACK', lang: 'hi', language: 'hindi', audio: 'hindi' }, '*');
+        iframe.contentWindow.postMessage({ type: 'CHANGE_AUDIO', track: 'hindi', lang: 'hi' }, '*');
+        iframe.contentWindow.postMessage({ action: 'setAudio', value: 'hindi' }, '*');
+      } catch (e) {}
+    });
+  }
 }
 
 function bindEmbedServerButtons() {
