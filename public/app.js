@@ -139,6 +139,41 @@ function checkPWAInstalled() {
   }
 }
 
+function isFBWebView() {
+  const ua = navigator.userAgent || navigator.vendor || window.opera;
+  return /FBAN|FBAV|Instagram|FB_IAB|FB4A|Messenger|Line/i.test(ua);
+}
+
+function openInChromeAndInstall() {
+  const chromeIntent = `intent://${window.location.host}${window.location.pathname}?install=1#Intent;scheme=https;package=com.android.chrome;end`;
+
+  let modal = document.getElementById('fbOpenChromeModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'fbOpenChromeModal';
+    modal.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85); z-index: 999999; display: flex;
+      align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;
+    `;
+    modal.innerHTML = `
+      <div style="background:#181818; border:1px solid #333; border-radius:16px; padding:24px; max-width:380px; text-align:center; color:#fff; font-family:sans-serif;">
+        <div style="font-size:40px; margin-bottom:12px;">🌐</div>
+        <h3 style="margin:0 0 10px; font-size:18px; color:#1db954;">Open in Chrome to Install App</h3>
+        <p style="font-size:14px; color:#ccc; line-height:1.5; margin-bottom:20px;">
+          Facebook / Messenger browser doesn't support App Installation. Tap below to open in Google Chrome and install Nexmovies directly!
+        </p>
+        <a id="openChromeBtn" href="${chromeIntent}" style="display:block; width:100%; padding:14px; background:#1db954; color:#000; font-weight:bold; font-size:15px; border-radius:10px; text-decoration:none; box-sizing:border-box; margin-bottom:10px;">
+          🚀 Open in Chrome & Install
+        </a>
+        <button id="closeFbModalBtn" style="background:transparent; border:none; color:#888; font-size:13px; cursor:pointer; padding:6px;">Close</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('closeFbModalBtn').onclick = () => modal.remove();
+  }
+}
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
@@ -151,11 +186,23 @@ window.addEventListener('appinstalled', () => {
   checkPWAInstalled();
 });
 
-document.addEventListener('DOMContentLoaded', checkPWAInstalled);
+document.addEventListener('DOMContentLoaded', () => {
+  checkPWAInstalled();
+  if (window.location.search.includes('install=1')) {
+    const cleanUrl = window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
+    setTimeout(() => { triggerInstall(); }, 800);
+  }
+});
 window.addEventListener('load', checkPWAInstalled);
 checkPWAInstalled();
 
 async function triggerInstall() {
+  if (isFBWebView()) {
+    openInChromeAndInstall();
+    return;
+  }
+
   if (deferredPrompt) {
     try {
       deferredPrompt.prompt();
@@ -2325,7 +2372,7 @@ async function openDetail(source, type, id, slug) {
     contentArea.innerHTML = `
       <div class="detail-page">
         <div class="detail-nav-row">
-          <button class="back-btn detail-back-btn" onclick="history.back()">
+          <button class="back-btn detail-back-btn" onclick="detailBack()">
             <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
             Back
           </button>
