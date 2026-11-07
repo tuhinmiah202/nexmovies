@@ -1935,19 +1935,31 @@ async function triggerCardDownload(subjectId, slug, btn) {
 // --- Embed sources ---
 function getEmbedServers(type, id, se, ep) {
   const s = se || 1, e = ep || 1;
+  const savedLang = (localStorage.getItem('preferredAudioLang') || 'hindi').toLowerCase();
+
+  let langCode = 'hi';
+  if (savedLang.includes('english') || savedLang.includes('en')) langCode = 'en';
+  else if (savedLang.includes('spanish') || savedLang.includes('es')) langCode = 'es';
+  else if (savedLang.includes('french') || savedLang.includes('fr')) langCode = 'fr';
+  else if (savedLang.includes('bengali') || savedLang.includes('bn')) langCode = 'bn';
+  else if (savedLang.includes('tamil') || savedLang.includes('ta')) langCode = 'ta';
+  else if (savedLang.includes('telugu') || savedLang.includes('te')) langCode = 'te';
+
+  const langParams = `?lang=${langCode}&audio=${langCode}&ds_lang=${langCode}&language=${encodeURIComponent(savedLang)}`;
+
   if (type === 'tv') {
     return [
-      { name: 'Server 1', url: `https://yapgrid.com/embed/tv/${id}/${s}/${e}` },
-      { name: 'Server 2', url: `https://vidcore.org/embed/tv/${id}/${s}/${e}` },
-      { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}` },
-      { name: 'Server 4', url: `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}` },
+      { name: 'Server 1', url: `https://yapgrid.com/embed/tv/${id}/${s}/${e}${langParams}` },
+      { name: 'Server 2', url: `https://vidcore.org/embed/tv/${id}/${s}/${e}${langParams}` },
+      { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}&lang=${langCode}&ds_lang=${langCode}` },
+      { name: 'Server 4', url: `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}&lang=${langCode}` },
     ];
   }
   return [
-    { name: 'Server 1', url: `https://yapgrid.com/embed/movie/${id}` },
-    { name: 'Server 2', url: `https://vidcore.org/embed/movie/${id}` },
-    { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1` },
-    { name: 'Server 4', url: `https://www.2embed.cc/embed/${id}` },
+    { name: 'Server 1', url: `https://yapgrid.com/embed/movie/${id}${langParams}` },
+    { name: 'Server 2', url: `https://vidcore.org/embed/movie/${id}${langParams}` },
+    { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&lang=${langCode}&ds_lang=${langCode}` },
+    { name: 'Server 4', url: `https://www.2embed.cc/embed/${id}?lang=${langCode}` },
   ];
 }
 
