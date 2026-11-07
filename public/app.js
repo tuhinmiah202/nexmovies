@@ -2366,10 +2366,6 @@ async function openDetail(source, type, id, slug) {
     if (downloadOptions.length > 0) {
       const dlItems = downloadOptions.map((opt, i) => {
         const sizeStr = opt.size ? ` (${opt.size})` : '';
-        const is1080 = (opt.height >= 1080 || (opt.label && opt.label.includes('1080')));
-        if (is1080) {
-          return `<button class="dl-option dl-locked" data-locked="true" data-title="${esc(detail.title || '')}"><span style="margin-right:4px;">🔒</span> ${opt.label}${sizeStr} <span style="font-size:10px;background:#e50914;color:#fff;padding:2px 5px;border-radius:4px;margin-left:6px;font-weight:bold;">VIP</span></button>`;
-        }
         return `<button class="dl-option" data-url="${esc(opt.url)}" data-title="${esc(detail.title || '')}">${opt.label}${sizeStr}</button>`;
       }).join('');
       downloadHtml = `
