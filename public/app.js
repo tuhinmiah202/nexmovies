@@ -1945,21 +1945,22 @@ function getEmbedServers(type, id, se, ep) {
   else if (savedLang.includes('tamil') || savedLang.includes('ta')) langCode = 'ta';
   else if (savedLang.includes('telugu') || savedLang.includes('te')) langCode = 'te';
 
-  const langParams = `?lang=${langCode}&audio=${langCode}&ds_lang=${langCode}&language=${encodeURIComponent(savedLang)}`;
+  // Explicitly target audio/dub track instead of subtitle language
+  const audioParams = `?audio_lang=${langCode}&audio_track=${langCode}&audio=${langCode}&dub=${langCode}&audio_name=hindi`;
 
   if (type === 'tv') {
     return [
-      { name: 'Server 1', url: `https://yapgrid.com/embed/tv/${id}/${s}/${e}${langParams}` },
-      { name: 'Server 2', url: `https://vidcore.org/embed/tv/${id}/${s}/${e}${langParams}` },
-      { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}&lang=${langCode}&ds_lang=${langCode}` },
-      { name: 'Server 4', url: `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}&lang=${langCode}` },
+      { name: 'Server 1', url: `https://yapgrid.com/embed/tv/${id}/${s}/${e}${audioParams}` },
+      { name: 'Server 2', url: `https://vidcore.org/embed/tv/${id}/${s}/${e}${audioParams}` },
+      { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}&audio_lang=${langCode}&dub=${langCode}` },
+      { name: 'Server 4', url: `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}&audio_lang=${langCode}` },
     ];
   }
   return [
-    { name: 'Server 1', url: `https://yapgrid.com/embed/movie/${id}${langParams}` },
-    { name: 'Server 2', url: `https://vidcore.org/embed/movie/${id}${langParams}` },
-    { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&lang=${langCode}&ds_lang=${langCode}` },
-    { name: 'Server 4', url: `https://www.2embed.cc/embed/${id}?lang=${langCode}` },
+    { name: 'Server 1', url: `https://yapgrid.com/embed/movie/${id}${audioParams}` },
+    { name: 'Server 2', url: `https://vidcore.org/embed/movie/${id}${audioParams}` },
+    { name: 'Server 3', url: `https://multiembed.mov/?video_id=${id}&tmdb=1&audio_lang=${langCode}&dub=${langCode}` },
+    { name: 'Server 4', url: `https://www.2embed.cc/embed/${id}?audio_lang=${langCode}` },
   ];
 }
 
