@@ -2098,8 +2098,12 @@ async function openDetail(source, type, id, slug) {
           const se = isMovie ? 0 : ((savedProgress && savedProgress.se) ? savedProgress.se : 1);
           const ep = isMovie ? 0 : ((savedProgress && savedProgress.ep) ? savedProgress.ep : 1);
           try {
-            const res = await fetch(resolveApiUrl(`/api/stream?subject_id=${matched.subject_id}&slug=${encodeURIComponent(matched.slug || '')}&se=${se}&ep=${ep}`));
-            const data = await res.json();
+            let res = await fetch(resolveApiUrl(`/api/stream?subject_id=${matched.subject_id}&slug=${encodeURIComponent(matched.slug || '')}&se=${se}&ep=${ep}`));
+            let data = await res.json();
+            if ((!data || !data.has_resource) && se !== 0) {
+              res = await fetch(resolveApiUrl(`/api/stream?subject_id=${matched.subject_id}&slug=${encodeURIComponent(matched.slug || '')}&se=0&ep=0`));
+              data = await res.json();
+            }
             if (data && data.has_resource && (data.sources?.length || data.dash?.length || data.hls?.length)) {
               streamData = data;
               source = 'nexmovies';
@@ -2123,6 +2127,13 @@ async function openDetail(source, type, id, slug) {
           const data = await res.json();
           if (data && data.has_resource && (data.sources?.length || data.dash?.length || data.hls?.length)) {
             return data;
+          }
+          if ((!data || !data.has_resource) && se !== 0) {
+            const fallbackRes = await fetch(resolveApiUrl(`/api/stream?subject_id=${id}&slug=${encodeURIComponent(slug)}&se=0&ep=0`));
+            const fallbackData = await fallbackRes.json();
+            if (fallbackData && fallbackData.has_resource && (fallbackData.sources?.length || fallbackData.dash?.length || fallbackData.hls?.length)) {
+              return fallbackData;
+            }
           }
         } catch (e) {}
         return null;
