@@ -2066,7 +2066,8 @@ async function openDetail(source, type, id, slug) {
         const queryVariants = [
           detail.title,
           detail.title.replace(/([a-z])([A-Z])/g, '$1 $2'),
-          detail.title.split(/[:\-\–]/)[0].trim()
+          detail.title.split(/[:\-\–]/)[0].trim(),
+          detail.title.split(/\s+/)[0]
         ];
 
         let matched = null;
@@ -2081,6 +2082,12 @@ async function openDetail(source, type, id, slug) {
                 const cleanName = (m.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
                 return cleanName.includes(cleanTarget) || cleanTarget.includes(cleanName);
               });
+              if (!matched) {
+                const mainWord = q.toLowerCase().split(/\s+/)[0];
+                if (mainWord && mainWord.length >= 3) {
+                  matched = mbItems.find(m => (m.name || '').toLowerCase().includes(mainWord));
+                }
+              }
               if (matched) break;
             }
           } catch(e) {}
