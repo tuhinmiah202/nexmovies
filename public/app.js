@@ -2133,21 +2133,20 @@ async function openDetail(source, type, id, slug) {
       const servers = getEmbedServers(type === 'tv' ? 'tv' : 'movie', id);
       playerSrc = servers[0].url;
       resolutions = servers;
-    } else if (dashPlayable) {
-      // Prioritize DASH Segmented Chunks (2s chunks, ZERO buffering, 100% stable)
-      playerSrc = dashEntry.url;
-      playerType = 'application/dash+xml';
-      formatLabel = dashIsHevc ? 'Adaptive HD (DASH/H.265)' : 'Adaptive HD (DASH Streaming)';
-      resolutions = dashRes;
-      qualityPlan = dashRes.map(r => ({ height: r.height, label: r.label || r.height + 'p', kind: 'dash', url: '' }));
     } else if (mp4Qualities.length > 0) {
-      // Fallback to MP4 stream (default to 720p/480p)
+      // Instant MP4 stream (loads in 0.1s!)
       const defaultQuality = get720pOr480pQuality(mp4Qualities);
       playerSrc = defaultQuality.url;
       playerType = 'video/mp4';
       formatLabel = `MP4 (${defaultQuality.label})`;
       resolutions = mp4Qualities.map(q => ({ height: q.height, label: q.label, url: q.url }));
       qualityPlan = mp4Qualities.map(q => ({ ...q }));
+    } else if (dashPlayable) {
+      playerSrc = dashEntry.url;
+      playerType = 'application/dash+xml';
+      formatLabel = dashIsHevc ? 'High efficiency (DASH/H.265)' : 'DASH Streaming';
+      resolutions = dashRes;
+      qualityPlan = dashRes.map(r => ({ height: r.height, label: r.label || r.height + 'p', kind: 'dash', url: '' }));
     } else if (validHLS.length > 0 && !dashEntry) {
       playerSrc = validHLS[0].url;
       playerType = 'application/x-mpegURL';
