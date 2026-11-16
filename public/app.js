@@ -2059,8 +2059,39 @@ async function openDetail(source, type, id, slug) {
     // Get stream
     let streamData = null;
     let captionData = null;
+
+    // If source is TMDB, try matching title against Moviebox API first for direct Moviebox CDN playback
+    if (source === 'tmdb' && detail && detail.title) {
+      try {
+        const mbSearch = await fetch(`https://moviebox-api-steel.vercel.app/search?q=${encodeURIComponent(detail.title)}`).then(r => r.json());
+        const mbItems = mbSearch.items || [];
+        if (mbItems.length > 0) {
+          const cleanTarget = detail.title.toLowerCase().replace(/[^a-z0-9]+/g, '');
+          const matched = mbItems.find(m => {
+            const cleanName = (m.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+            return cleanName.includes(cleanTarget) || cleanTarget.includes(cleanName);
+          });
+          if (matched && matched.subject_id) {
+            const isMovie = detail.type === 'movie';
+            const se = isMovie ? 0 : ((savedProgress && savedProgress.se) ? savedProgress.se : 1);
+            const ep = isMovie ? 0 : ((savedProgress && savedProgress.ep) ? savedProgress.ep : 1);
+            try {
+              const res = await fetch(resolveApiUrl(`/api/stream?subject_id=${matched.subject_id}&slug=${encodeURIComponent(matched.slug || '')}&se=${se}&ep=${ep}`));
+              const data = await res.json();
+              if (data && data.has_resource && (data.sources?.length || data.dash?.length || data.hls?.length)) {
+                streamData = data;
+                source = 'nexmovies';
+                id = matched.subject_id;
+                slug = matched.slug;
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (e) {}
+    }
+
     // Support both old 'moviebox' and new 'nexmovies' source labels
-    if ((source === 'moviebox' || source === 'nexmovies') && slug && id) {
+    if ((source === 'moviebox' || source === 'nexmovies') && slug && id && !streamData) {
       const isMovie = detail.type === 'movie';
       const se = isMovie ? 0 : ((savedProgress && savedProgress.se) ? savedProgress.se : 1);
       const ep = isMovie ? 0 : ((savedProgress && savedProgress.ep) ? savedProgress.ep : 1);
